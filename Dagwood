@@ -1,74 +1,78 @@
 project flux
 
-set ::flux::DESCRIPTION "Flux is an HTTP automation testing tool"
+config {
+    set description "Flux is an HTTP automation testing tool"
+}
 
-set BUILD_FOLDER build
+globals {
+    set BUILD_FOLDER build
+    set TCL_LIB src/dsl.tcl
+    set TCL_C   src/dsl.h
+    set CC gcc
+    set LINK_OPTS [list -ltcl -lcrypto -lcurl]
+    set TARGETS [unique-glob src/*.c src/*.h]
+    set OUTPUT  ${BUILD_FOLDER}/flux
+    set STANDARD_OPTS [list -std=c11 -Os -D_POSIX_C_SOURCE=200809L \
+			   -Wall -Wextra -Wpedantic \
+			   -Wstrict-overflow -fno-strict-aliasing]
+    set DEBUG_OPTS   [list -g -O0 -DDEBUG {*}$STANDARD_OPTS]
+    set RELEASE_OPTS [list -O2 -DNDEBUG -s -march=native {*}$STANDARD_OPTS]
+}
 
 task setup {
     description "Setup the build folder"
     run {
-	mkdir -p $::BUILD_FOLDER
+	mkdir -p $flux::BUILD_FOLDER
     }
 }
-
-set TCL_LIB src/dsl.tcl
-set TCL_C   src/dsl.h
 
 task xxd {
     description "Embed Tcl into C header"
-    inputs $::TCL_LIB
-    outputs $::TCL_C
+    inputs $flux::TCL_LIB
+    outputs $flux::TCL_C
     run {
-	xxd -i $::TCL_LIB > $::TCL_C
+	xxd -i $flux::TCL_LIB > $flux::TCL_C
     }
 }
 
-set CC gcc
-set LINK_OPTS [list -ltcl -lcrypto -lcurl]
-set TARGETS [unique-glob src/*.c src/*.h]
-set OUTPUT  ${BUILD_FOLDER}/flux
-
 task fmt {
     description "Run clang-format"
-    depends_on xxd
-    inputs  $::TARGETS
+    depends_on flux::xxd
+    inputs  $flux::TARGETS
     outputs .clang-format
     run {
 	set -e
-	clang-format -i $::TARGETS
+	clang-format -i $flux::TARGETS
 	touch .clang-format
     }
 }
 
 proc build {name opts} {
-    set new_out ${::OUTPUT}_$name
+    set new_out ${flux::OUTPUT}_$name
     
-    task $name {
-	description "Build - $name"
-	depends_on setup fmt
-	inputs  $::TARGETS
-	outputs $new_out
-	run [subst {
-	    $::CC $::TARGETS $::LINK_OPTS $opts -o $new_out
-	}]
-    }
+    eval [subst {
+	task $name {
+	    description "Build - $name"
+	    depends_on setup fmt
+	    inputs  \$flux::TARGETS
+	    outputs $new_out
+	    run {
+		\$flux::CC \$flux::TARGETS \$flux::LINK_OPTS $opts -o $new_out
+	    }
+	}	
+    }]
 }
 
-set STANDARD_OPTS [list -std=c11 -Os -D_POSIX_C_SOURCE=200809L \
-		       -Wall -Wextra -Wpedantic \
-		       -Wstrict-overflow -fno-strict-aliasing]
-set DEBUG_OPTS   [list -g -O0 -DDEBUG {*}$STANDARD_OPTS]
-set RELEASE_OPTS [list -O2 -DNDEBUG -s -march=native {*}$STANDARD_OPTS]
-
-build debug   $DEBUG_OPTS
-build release $RELEASE_OPTS
+build debug   $flux::DEBUG_OPTS
+build release $flux::RELEASE_OPTS
 
 task bear {
     description "Generate compile_commands.json"
-    inputs $::TARGETS
+    inputs $flux::TARGETS
     outputs compile_commands.json
-    depends_on debug
+    depends_on flux::debug
     run {
-	bear -- $::flux::debug::run
+	bear -- $flux::debug::run
     }
 }
+

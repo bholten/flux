@@ -1,4 +1,4 @@
-puts "Hello"
+source ../src/dsl.tcl
 
 GET https://jsonplaceholder.typicode.com/posts/1 {
     headers {
@@ -15,7 +15,5 @@ GET https://jsonplaceholder.typicode.com/posts/2 {
 }
 
 
-puts "Hello2"
-
-puts $::flux::requests
+puts $::___flux::main::requests
 

@@ -5,7 +5,6 @@
 #include <curl/easy.h>
 #include <tcl/tcl.h>
 #include <tcl/tclDecls.h>
-#include <tcl8.6/tclDecls.h>
 
 #include "dsl.h"
 #include "flux.h"
@@ -33,7 +32,7 @@ flux *flux_new(void) {
 
   CURL *curl = curl_easy_init();
 
-  // clang-format off
+// clang-format off
   #if DEBUG
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
   #endif

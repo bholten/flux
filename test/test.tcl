@@ -1,9 +1,9 @@
-source ../src/dsl.tcl
+workspace test
 
 GET https://www.google.com {
     headers {
 	Content-Type: application/json
-	Authorization: "Bearer whatever"
+	Authorization: "Bearer <token>"
 	User-Agent: flux
     }
 
@@ -13,6 +13,3 @@ GET https://www.google.com {
 	}
     }
 }
-
-
-puts $::___flux::main::requests

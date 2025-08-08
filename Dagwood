@@ -7,7 +7,7 @@ config {
 globals {
     set BUILD_FOLDER build
     set TCL_LIB src/dsl.tcl
-    set TCL_C   src/dsl.h
+    set TCL_C src/dsl.h
     set CC gcc
     set LINK_OPTS [list -ltcl -lcrypto -lcurl]
     set TARGETS [unique-glob src/*.c src/*.h]
@@ -53,7 +53,7 @@ proc build {name opts} {
     eval [subst {
 	task $name {
 	    description "Build - $name"
-	    depends_on setup fmt
+	    depends_on flux::setup flux::fmt
 	    inputs  \$flux::TARGETS
 	    outputs $new_out
 	    run {

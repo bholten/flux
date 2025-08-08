@@ -4,19 +4,26 @@
 #include "flux.h"
 
 int main(int argc, const char **argv) {
-  flux *req = flux_new();
+  flux *f = flux_new();
 
   if (argc < 2) {
     fprintf(stderr, "[flux] Need a file\n");
+    flux_delete(f);
     return EXIT_FAILURE;
   }
 
   const char *file = argv[1];
 
-  if (!flux_interpret(req, file)) {
-    flux_get_error(req, file);
-    flux_delete(req);
+  if (!flux_interpret(f, file)) {
+    flux_get_error(f, file);
+    flux_delete(f);
     return EXIT_FAILURE;
+  }
+
+  flux_result result = sync_requests(f);
+
+  if (result == FLUX_OK) {
+    flux_send(f);
   }
 
   /*
@@ -27,7 +34,7 @@ int main(int argc, const char **argv) {
   flux_send(req);
   */
 
-  flux_delete(req);
+  flux_delete(f);
 
   return EXIT_SUCCESS;
 }

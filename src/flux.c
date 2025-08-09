@@ -86,10 +86,20 @@ flux_result flux_send(flux *f) {
 
   if (CURLE_OK == result) {
     curl_easy_reset(f->curl);
+
+#if DEBUG
+    curl_easy_setopt(f->curl, CURLOPT_VERBOSE, 1L);
+#endif
+
     return FLUX_OK;
   }
 
   curl_easy_reset(f->curl);
+
+#if DEBUG
+  curl_easy_setopt(f->curl, CURLOPT_VERBOSE, 1L);
+#endif
+
   return FLUX_ERROR;
 }
 

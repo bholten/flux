@@ -1,5 +1,3 @@
-#source ../src/dsl.tcl
-
 workspace dummy
 
 GET https://jsonplaceholder.typicode.com/posts/1 {
@@ -13,6 +11,4 @@ GET https://jsonplaceholder.typicode.com/posts/2 {
 	User-Agent: flux
     }
 }
-
-puts $::___flux::main::requests
 

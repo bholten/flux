@@ -12,7 +12,13 @@
 #define FLUX_CURRENT_WORKSPACE_VAR "::___flux::main::current_workspace"
 #define FLUX_WORKSPACES_VAR "::___flux::main::workspaces"
 
+#define PRELOAD_SCRIPT                                                         \
+  "namespace eval ___flux::main {"                                             \
+  "  source \"%s\""                                                            \
+  "}"
+
 static const size_t FLUX_MAIN_LEN = strlen("::___flux::main::") + 1;
+static const size_t FLUX_PRELOAD_LEN = strlen(PRELOAD_SCRIPT) + 1;
 
 size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
 
@@ -107,7 +113,21 @@ void flux_set_verb(flux *f, const char *verb) {
   curl_easy_setopt(f->curl, CURLOPT_CUSTOMREQUEST, verb);
 }
 
+void flux_set_body(flux *f, const char *body) {
+  curl_easy_setopt(f->curl, CURLOPT_POSTFIELDS, body);
+}
+
 flux_result flux_interpret(flux *f, const char *file) {
+  size_t script_len = FLUX_PRELOAD_LEN + strlen(file);
+  char script[script_len];
+  snprintf(script, script_len, PRELOAD_SCRIPT, file);
+
+  int code = Tcl_Eval(f->interp, script);
+
+  if (code != TCL_OK) {
+    return FLUX_ERROR;
+  }
+
   if (Tcl_EvalFile(f->interp, file) != TCL_OK) {
     return FLUX_ERROR;
   }
@@ -136,6 +156,8 @@ flux_result sync_requests(flux *f) {
     return FLUX_ERROR;
   }
 
+  printf("[flux] found %d workspaces\n", size);
+
   for (int i = 0; i < size; i++) {
     Tcl_Obj *namespace_obj;
 
@@ -160,6 +182,8 @@ flux_result sync_requests(flux *f) {
       return FLUX_ERROR;
     }
 
+    printf("[flux] [%s] found %d requests\n", namespace, req_count);
+
     for (int j = 0; j < req_count; j++) {
       Tcl_Obj *request_obj;
 
@@ -172,12 +196,13 @@ flux_result sync_requests(flux *f) {
       Tcl_Obj *data_obj;
       Tcl_Obj *headers_obj;
 
-      const char *url;
+      const char *url = NULL;
 
       if (Tcl_DictObjGet(f->interp, request_obj, Tcl_NewStringObj("url", -1),
                          &url_obj) == TCL_OK &&
           url_obj != NULL) {
         url = Tcl_GetString(url_obj);
+        printf("[flux] [%s] setting url %s\n", namespace, url);
         flux_set_url(f, url);
       }
 
@@ -188,6 +213,7 @@ flux_result sync_requests(flux *f) {
           verb_obj != NULL) {
         const char *verb = Tcl_GetString(verb_obj);
 
+        printf("[flux] [%s] setting verb %s\n", namespace, verb);
         flux_set_verb(f, verb);
       }
 
@@ -196,7 +222,8 @@ flux_result sync_requests(flux *f) {
           data_obj != NULL) {
         const char *data = Tcl_GetString(data_obj);
 
-        // flux_set_body(f, (uint8_t *)data);
+        printf("[flux] [%s] setting body %s\n", namespace, data);
+        flux_set_body(f, data);
       }
 
       if (Tcl_DictObjGet(f->interp, request_obj,
@@ -218,6 +245,7 @@ flux_result sync_requests(flux *f) {
           }
 
           const char *header = Tcl_GetString(header_obj);
+          printf("[flux] [%s] [%s] adding header %s\n", namespace, url, header);
           flux_set_header(f, header);
         }
       }

@@ -13,8 +13,10 @@ int main(int argc, const char **argv) {
   }
 
   const char *file = argv[1];
+  printf("[flux] file %s\n", file);
 
   if (!flux_interpret(f, file)) {
+    printf("[flux] error\n");
     flux_get_error(f, file);
     flux_delete(f);
     return EXIT_FAILURE;
@@ -23,6 +25,7 @@ int main(int argc, const char **argv) {
   flux_result result = sync_requests(f);
 
   if (result != FLUX_OK) {
+    fprintf(stderr, "[flux] error constructing requests\n");
     flux_get_error(f, file);
   }
 

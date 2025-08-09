@@ -13,7 +13,7 @@ void flux_delete(flux *f);
 void flux_set_verb(flux *f, const char *verb);
 void flux_set_url(flux *f, const char *url);
 void flux_set_header(flux *f, const char *header);
-void flux_set_body(flux *f, const uint8_t *body);
+void flux_set_body(flux *f, const char *body);
 
 flux_result flux_send(flux *f);
 

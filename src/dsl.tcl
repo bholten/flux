@@ -1,7 +1,7 @@
 namespace eval ::___flux::main {
     variable current_workspace
     variable workspaces {}
-    
+
     proc create_workspace {workspace} {
 	set ::___flux::main::current_workspace $workspace
 	lappend ::___flux::main::workspaces $workspace
@@ -9,7 +9,7 @@ namespace eval ::___flux::main {
 	namespace eval ::___flux::main::${workspace} {
 	    variable current_request
 	    variable requests
-   
+
 	    if {![info exists requests]} {
 		set requests {}
 	    }
@@ -31,12 +31,10 @@ namespace eval ::___flux::main {
 		namespace eval ${full_ns}::config {}
 		namespace eval ::___flux::main $body
 
-		puts $::___flux::main::current_request
-
 		add_request
-
-		if {[info exist current_request]} {		    
-		    unset current_request
+		
+		if {[info exist ::___flux::main::current_request]} {
+		    unset ::___flux::main::current_request
 		}
 	    }
 

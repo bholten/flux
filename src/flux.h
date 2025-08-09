@@ -15,11 +15,11 @@ void flux_set_url(flux *f, const char *url);
 void flux_set_header(flux *f, const char *header);
 void flux_set_body(flux *f, const uint8_t *body);
 
-int flux_send(flux *f);
+flux_result flux_send(flux *f);
 
 flux_result sync_requests(flux *f);
 
-int flux_interpret(flux *f, const char *file);
+flux_result flux_interpret(flux *f, const char *file);
 void flux_get_error(flux *f, const char *file);
 
 #endif

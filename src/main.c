@@ -22,17 +22,9 @@ int main(int argc, const char **argv) {
 
   flux_result result = sync_requests(f);
 
-  if (result == FLUX_OK) {
-    flux_send(f);
+  if (result != FLUX_OK) {
+    flux_get_error(f, file);
   }
-
-  /*
-  flux_set_url(req, "https://jsonplaceholder.typicode.com/posts/1");
-  flux_set_verb(req, GET);
-  flux_set_header(req, "Content-Type: application/json");
-  flux_set_header(req, "Accept-Encoding: gzip");
-  flux_send(req);
-  */
 
   flux_delete(f);
 

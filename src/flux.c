@@ -32,11 +32,9 @@ flux *flux_new(void) {
 
   CURL *curl = curl_easy_init();
 
-// clang-format off
-  #if DEBUG
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-  #endif
-  // clang-format on
+#if DEBUG
+  curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+#endif
 
   if (!curl) {
     free(f);
@@ -83,36 +81,34 @@ void flux_set_header(flux *f, const char *header) {
   curl_easy_setopt(f->curl, CURLOPT_HTTPHEADER, f->headers);
 }
 
-int flux_send(flux *f) {
-  sync_requests(f);
-
+flux_result flux_send(flux *f) {
   CURLcode result = curl_easy_perform(f->curl);
 
   if (CURLE_OK == result) {
     curl_easy_reset(f->curl);
-    return 0;
+    return FLUX_OK;
   }
 
   curl_easy_reset(f->curl);
-  return -1;
+  return FLUX_ERROR;
 }
 
 void flux_set_verb(flux *f, const char *verb) {
   curl_easy_setopt(f->curl, CURLOPT_CUSTOMREQUEST, verb);
 }
 
-int flux_interpret(flux *f, const char *file) {
+flux_result flux_interpret(flux *f, const char *file) {
   if (Tcl_EvalFile(f->interp, file) != TCL_OK) {
-    return 0;
+    return FLUX_ERROR;
   }
 
-  return 1;
+  return FLUX_OK;
 }
 
 void flux_get_error(flux *f, const char *filename) {
   int line = Tcl_GetErrorLine(f->interp);
   const char *err = Tcl_GetStringResult(f->interp);
-  fprintf(stderr, "[flux] %s:%i %s\n", filename, line, err);
+  fprintf(stderr, "[flux] Error  %s:%i %s\n", filename, line, err);
 }
 
 int create_request_command(ClientData cd, Tcl_Interp *interp, int argc,
@@ -154,7 +150,7 @@ flux_result sync_requests(flux *f) {
       return FLUX_ERROR;
     }
 
-    for (size_t j = 0; j < req_count; j++) {
+    for (int j = 0; j < req_count; j++) {
       Tcl_Obj *request_obj;
 
       if (Tcl_ListObjIndex(f->interp, requests, j, &request_obj) != TCL_OK) {
@@ -166,14 +162,16 @@ flux_result sync_requests(flux *f) {
       Tcl_Obj *data_obj;
       Tcl_Obj *headers_obj;
 
+      const char *url;
+
       if (Tcl_DictObjGet(f->interp, request_obj, Tcl_NewStringObj("url", -1),
                          &url_obj) == TCL_OK &&
           url_obj != NULL) {
-        const char *url = Tcl_GetString(url_obj);
-
+        url = Tcl_GetString(url_obj);
         flux_set_url(f, url);
-        printf("URL %s\n", url);
       }
+
+      if (!url) return FLUX_ERROR;
 
       if (Tcl_DictObjGet(f->interp, request_obj, Tcl_NewStringObj("verb", -1),
                          &verb_obj) == TCL_OK &&
@@ -181,7 +179,6 @@ flux_result sync_requests(flux *f) {
         const char *verb = Tcl_GetString(verb_obj);
 
         flux_set_verb(f, verb);
-        printf("- Verb: %s\n", verb);
       }
 
       if (Tcl_DictObjGet(f->interp, request_obj, Tcl_NewStringObj("data", -1),
@@ -190,7 +187,6 @@ flux_result sync_requests(flux *f) {
         const char *data = Tcl_GetString(data_obj);
 
         // flux_set_body(f, (uint8_t *)data);
-        printf("- Data: %s\n", data);
       }
 
       if (Tcl_DictObjGet(f->interp, request_obj,
@@ -203,7 +199,7 @@ flux_result sync_requests(flux *f) {
           return TCL_ERROR;
         }
 
-        for (size_t k = 0; k < headers_len; k++) {
+        for (int k = 0; k < headers_len; k++) {
           Tcl_Obj *header_obj;
 
           if (Tcl_ListObjIndex(f->interp, headers_obj, k, &header_obj) !=
@@ -212,11 +208,12 @@ flux_result sync_requests(flux *f) {
           }
 
           const char *header = Tcl_GetString(header_obj);
-
           flux_set_header(f, header);
-          printf("Header: %s\n", header);
         }
       }
+
+      printf("[flux] [%s] [%s] sending request\n", namespace, url);
+      flux_send(f);
     }
   }
 

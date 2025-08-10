@@ -56,6 +56,12 @@ namespace eval ::___flux::main {
 	::___flux::main::create_workspace $name
     }
 
+    proc import {ns path} {
+	set full_path [file normalize $path]
+
+	namespace eval ::___flux::main [list source $full_path]
+    }
+
     proc config {body} {
 	set cw $::___flux::main::current_workspace
 	namespace eval ::___flux::main::${cw}::config [list $body]

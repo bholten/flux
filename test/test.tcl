@@ -1,3 +1,5 @@
+import dummy dummy.tcl
+
 workspace test
 
 GET https://www.google.com {

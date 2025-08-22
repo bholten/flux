@@ -1,35 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "flux.h"
+#include "interpreter.h"
 
 int main(int argc, const char **argv) {
-  flux *f = flux_new();
+  interpreter *interp = interpreter_new();
+
+  if (!interp) {
+    fprintf(stderr, "Failed to initialize interpreter\n");
+    exit(1);
+  }
 
   if (argc < 2) {
     fprintf(stderr, "[flux] Need a file\n");
-    flux_delete(f);
+    interpreter_delete(interp);
     return EXIT_FAILURE;
   }
 
   const char *file = argv[1];
-  printf("[flux] file %s\n", file);
 
-  if (!flux_interpret(f, file)) {
-    printf("[flux] error\n");
-    flux_get_error(f, file);
-    flux_delete(f);
+  if (argc > 2) {
+    if (interpreter_setup_environment(interp, argc - 2, argv + 2) !=
+        INTERP_OK) {
+      fprintf(stderr, "[flux] error setting global variables\n");
+      return EXIT_FAILURE;
+    }
+  }
+
+  if (interpreter_eval_file(interp, file) != INTERP_OK) {
+    fprintf(stderr, "[flux] error evaluating %s\n", file);
+    interpreter_print_error(interp);
     return EXIT_FAILURE;
   }
 
-  flux_result result = sync_requests(f);
-
-  if (result != FLUX_OK) {
-    fprintf(stderr, "[flux] error constructing requests\n");
-    flux_get_error(f, file);
+  if (interpreter_execute(interp) != INTERP_OK) {
+    fprintf(stderr, "[flux] error executing run %s\n", file);
+    interpreter_print_error(interp);
+    return EXIT_FAILURE;
   }
-
-  flux_delete(f);
 
   return EXIT_SUCCESS;
 }

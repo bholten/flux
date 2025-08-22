@@ -9,12 +9,12 @@ globals {
     set TCL_LIB src/dsl.tcl
     set TCL_C src/dsl.h
     set CC gcc
-    set LINK_OPTS [list -ltcl -lcrypto -lcurl]
+    set LINK_OPTS [list -ltcl -ljim -lcrypto -lcurl]
     set TARGETS [unique-glob src/*.c src/*.h]
     set OUTPUT  ${BUILD_FOLDER}/flux
     set STANDARD_OPTS [list -std=c11 -Os -D_POSIX_C_SOURCE=200809L \
-			   -Wall -Wextra -Wpedantic \
-			   -Wstrict-overflow -fno-strict-aliasing]
+			    -Wall -Wextra -Wpedantic \
+			    -Wstrict-overflow -fno-strict-aliasing]
     set DEBUG_OPTS   [list -g -O0 -DDEBUG {*}$STANDARD_OPTS]
     set RELEASE_OPTS [list -O2 -DNDEBUG -s -march=native {*}$STANDARD_OPTS]
 }

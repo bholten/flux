@@ -15,6 +15,11 @@ void http_reset(http *h);
 bool http_alive(http *h);
 size_t http_sizeof(void);
 
+void http_get_info_response_code(http *h, long *status);
+void http_get_info_content_type(http *h, char **content_type);
+void http_get_info_effective_url(http *h, char **effective_url);
+void http_get_info_total_time(http *h, double *total_time);
+
 http_result http_set_header_callback(http *h, void *cb);
 http_result http_set_header_data(http *h, void *data);
 http_result http_set_write_callback(http *h, void *cb);

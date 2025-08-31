@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,9 +21,90 @@ static const size_t JIM_NAMESPACE_EVAL_PREAMBLE_LEN =
     strlen(NAMESPACE_EVAL_PREAMBLE) + 1;
 static const size_t JIM_PRELOAD_LEN = strlen(PRELOAD_SCRIPT) + 1;
 
+struct dstr {
+  char *buf;
+  size_t len;
+  size_t cap;
+};
+
+static int dstr_grow(struct dstr *s, size_t extra) {
+  size_t need = s->len + extra;
+  if (need > s->cap) {
+    size_t cap = s->cap ? s->cap : 8192;
+
+    while (cap < need) {
+      cap *= 2;
+    }
+
+    char *nbuf = Jim_Realloc(s->buf, cap);
+
+    if (!nbuf) return 0;
+
+    s->buf = nbuf;
+    s->cap = cap;
+  }
+
+  return 1;
+}
+
+static int dstr_append(struct dstr *s, const char *p, size_t n) {
+  if (!dstr_grow(s, n)) {
+    return 0;
+  }
+
+  memcpy(s->buf + s->len, p, n);
+  s->len += n;
+  return 1;
+}
+
+static void dstr_free(struct dstr *s) {
+  if (s->buf) {
+    Jim_Free(s->buf);
+  }
+
+  s->buf = NULL;
+  s->len = 0;
+  s->cap = 0;
+}
+
+struct http_ctx {
+  http *http;
+  Jim_Obj *write_command;
+  Jim_Obj *header_command;
+  Jim_Interp *interp;
+
+  struct dstr body;
+  struct dstr headers;
+  long status;
+  char *ct;
+  char *eff_url;
+  double total_time;
+};
+
 struct interpreter {
   Jim_Interp *interp;
 };
+
+static int eval_prefix(Jim_Interp *interp, Jim_Obj *prefix, Jim_Obj *arg1) {
+  Jim_Obj *call = Jim_DuplicateObj(interp, prefix);
+  Jim_IncrRefCount(call);
+  printf("Hit eval prefix\n");
+  Jim_ListAppendElement(interp, call, arg1);
+
+  int rc = Jim_EvalObj(interp, call);
+  Jim_DecrRefCount(interp, call);
+  return rc;
+}
+
+static size_t write_cb(char *ptr, size_t size, size_t nmeb, void *user_data) {
+  struct http_ctx *ctx = (struct http_ctx *)user_data;
+  size_t n = size * nmeb;
+
+  if (!ctx) return 0;
+  if (!dstr_append(&ctx->body, ptr, n)) return 0;
+
+  return n;
+}
 
 static const char *j_str(Jim_Obj *obj) {
   int len;
@@ -42,7 +124,8 @@ static void print_error(Jim_Interp *interp) {
 
 static int flux_obj_command(Jim_Interp *interp, int argc,
                             Jim_Obj *const *argv) {
-  http *h = (http *)Jim_CmdPrivData(interp);
+  struct http_ctx *h_ctx = (struct http_ctx *)Jim_CmdPrivData(interp);
+  http *h = h_ctx->http;
 
   if (!h || !http_alive(h)) return j_err(interp, "curl handle is closed");
 
@@ -242,24 +325,98 @@ static int flux_obj_command(Jim_Interp *interp, int argc,
       return JIM_OK;
     }
   } else if (strcmp(sub, "perform") == 0) {
+    h_ctx->body.len = 0;
+    h_ctx->headers.len = 0;
+    h_ctx->status = 0;
+    h_ctx->total_time = 0.0;
+
+    if (h_ctx->ct) {
+      Jim_Free(h_ctx->ct);
+      h_ctx->ct = NULL;
+    }
+
+    if (h_ctx->eff_url) {
+      Jim_Free(h_ctx->eff_url);
+      h_ctx->eff_url = NULL;
+    }
+
+    puts("sending HTTP");
     int rc = http_send(h);
     if (rc != HTTP_OK) return JIM_ERR;
 
+    http_get_info_response_code(h_ctx->http, &h_ctx->status);
+    http_get_info_total_time(h_ctx->http, &h_ctx->total_time);
+
+    {
+      char *p = NULL;
+      http_get_info_content_type(h_ctx->http, &p);
+      if (p) {
+        size_t len = strlen(p);
+        h_ctx->ct = Jim_Alloc(len + 1);
+        memcpy(h_ctx->ct, p, len + 1);
+      }
+    }
+
+    {
+      char *p = NULL;
+      http_get_info_effective_url(h_ctx->http, &p);
+      if (p) {
+        size_t len = strlen(p);
+        h_ctx->eff_url = Jim_Alloc(len + 1);
+        memcpy(h_ctx->eff_url, p, len + 1);
+      }
+    }
+
+    Jim_SetEmptyResult(interp);
     return JIM_OK;
-  } else if (strcmp(sub, "cleanup") == 0) {
+  }
+
+  else if (strcmp(sub, "result") == 0) {
+    Jim_Obj *dict = Jim_NewDictObj(interp, NULL, 0);
+    Jim_DictAddElement(interp, dict, Jim_NewStringObj(interp, "status", -1),
+                       Jim_NewIntObj(interp, h_ctx->status));
+
+    Jim_Obj *body = Jim_NewStringObj(
+        interp, h_ctx->body.buf ? h_ctx->body.buf : "", (int)h_ctx->body.len);
+    Jim_DictAddElement(interp, dict, Jim_NewStringObj(interp, "body", -1),
+                       body);
+
+    Jim_Obj *hdrs =
+        Jim_NewStringObj(interp, h_ctx->headers.buf ? h_ctx->headers.buf : "",
+                         (int)h_ctx->headers.len);
+    Jim_DictAddElement(interp, dict,
+                       Jim_NewStringObj(interp, "headers-raw", -1), hdrs);
+
+    Jim_DictAddElement(
+        interp, dict, Jim_NewStringObj(interp, "content-type", -1),
+        Jim_NewStringObj(interp, h_ctx->ct ? h_ctx->ct : "", -1));
+    Jim_DictAddElement(
+        interp, dict, Jim_NewStringObj(interp, "effective-url", -1),
+        Jim_NewStringObj(interp, h_ctx->eff_url ? h_ctx->eff_url : "", -1));
+    Jim_DictAddElement(interp, dict, Jim_NewStringObj(interp, "total-time", -1),
+                       Jim_NewDoubleObj(interp, h_ctx->total_time));
+
+    Jim_SetResult(interp, dict);
+    return JIM_OK;
+  }
+
+  else if (strcmp(sub, "cleanup") == 0) {
     if (http_alive(h)) {
       http_reset(h);
     }
 
     return JIM_OK;
+  }
 
-  } else if (strcmp(sub, "reset") == 0) {
+  else if (strcmp(sub, "reset") == 0) {
     if (h) {
       http_reset(h);
     }
 
     return JIM_OK;
-  } else if (strcmp(sub, "header") == 0) {
+  }
+
+  else if (strcmp(sub, "header") == 0) {
     if (argc < 3) {
       return j_err(interp, "usage: handler header <header>");
     }
@@ -274,7 +431,9 @@ static int flux_obj_command(Jim_Interp *interp, int argc,
     }
 
     return JIM_OK;
-  } else if (strcmp(sub, "body") == 0) {
+  }
+
+  else if (strcmp(sub, "body") == 0) {
     if (argc != 3) {
       return j_err(interp, "usage: handler body <body>");
     }
@@ -295,23 +454,42 @@ static int flux_obj_command(Jim_Interp *interp, int argc,
 
 static void flux_cmd_delete_proc(Jim_Interp *interp, void *private_data) {
   (void)interp;
-  http *h = (http *)private_data;
+  struct http_ctx *h_ctx = (struct http_ctx *)private_data;
 
-  if (!h) {
+  if (!h_ctx) {
     return;
   }
 
-  http_delete(h);
-  Jim_Free(h);
+  http_delete(h_ctx->http);
+  dstr_free(&h_ctx->body);
+  dstr_free(&h_ctx->headers);
+
+  if (h_ctx->ct) {
+    Jim_Free(h_ctx->ct);
+  }
+
+  if (h_ctx->eff_url) {
+    Jim_Free(h_ctx->eff_url);
+  }
+
+  Jim_Free(h_ctx);
 }
 
 static int flux_init_command(Jim_Interp *interp, int argc,
                              Jim_Obj *const *argv) {
   (void)argc;
   (void)argv;
+  // TODO not sure if this will work:
+  struct http_ctx *h = Jim_Alloc(sizeof(*h));
+  memset(h, 0, sizeof(*h));
+  h->http = http_new();
+  h->header_command = NULL;
+  h->write_command = NULL;
 
-  http *h = http_new();
-  if (http_init(h) != HTTP_OK) {
+  http_set_write_callback(h->http, write_cb);
+  http_set_write_data(h->http, h);
+
+  if (http_init(h->http) != HTTP_OK) {
     fprintf(stderr, "[flux] [error] could not initialize curl\n");
     return INTERP_ERR;
   }
@@ -378,12 +556,10 @@ interp_result interpreter_setup_environment(interpreter *interp, int argc,
   Jim_Obj *list_obj = Jim_NewListObj(interp->interp, NULL, 0);
 
   for (n = 0; n < argc; n++) {
-    printf("setting arg %s\n", argv[n]);
     Jim_Obj *obj = Jim_NewStringObj(interp->interp, argv[n], -1);
     Jim_ListAppendElement(interp->interp, list_obj, obj);
   }
 
-  printf("setting argc %d\n", argc);
   if (Jim_SetGlobalVariableStr(interp->interp, "argc",
                                Jim_NewIntObj(interp->interp, argc)) != JIM_OK) {
     return INTERP_ERR;

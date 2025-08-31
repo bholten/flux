@@ -63,6 +63,22 @@ size_t http_sizeof(void) {
   return sizeof(struct http);
 }
 
+void http_get_info_response_code(http *h, long *status) {
+  curl_easy_getinfo(h->curl, CURLINFO_RESPONSE_CODE, status);
+}
+
+void http_get_info_content_type(http *h, char **content_type) {
+  curl_easy_getinfo(h->curl, CURLINFO_CONTENT_TYPE, content_type);
+}
+
+void http_get_info_effective_url(http *h, char **effective_url) {
+  curl_easy_getinfo(h->curl, CURLINFO_EFFECTIVE_URL, effective_url);
+}
+
+void http_get_info_total_time(http *h, double *total_time) {
+  curl_easy_getinfo(h->curl, CURLINFO_TOTAL_TIME, total_time);
+}
+
 typedef size_t (*write_callback)(char *, size_t, size_t, void *);
 
 http_result http_set_write_callback(http *h, void *cb) {
@@ -71,6 +87,8 @@ http_result http_set_write_callback(http *h, void *cb) {
   int rc = curl_easy_setopt(h->curl, CURLOPT_WRITEFUNCTION, write_cb);
 
   if (rc != CURLE_OK) return HTTP_ERROR;
+
+  puts("Write callback set okay");
   return HTTP_OK;
 }
 
@@ -78,6 +96,8 @@ http_result http_set_write_data(http *h, void *data) {
   int rc = curl_easy_setopt(h->curl, CURLOPT_WRITEDATA, data);
 
   if (rc != CURLE_OK) return HTTP_ERROR;
+
+  puts("Write data set okay");
   return HTTP_OK;
 }
 
@@ -226,9 +246,11 @@ http_result http_set_option_ca_path(http *h, char *ca_path) {
 }
 
 http_result http_send(http *h) {
+  puts("curl easy perform");
+  curl_easy_setopt(h->curl, CURLOPT_VERBOSE, 1L);
   CURLcode result = curl_easy_perform(h->curl);
 
-  if (CURLE_OK == result) {
+  if (result == CURLE_OK) {
     curl_easy_reset(h->curl);
     curl_slist_free_all(h->headers);
 

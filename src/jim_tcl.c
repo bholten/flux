@@ -84,7 +84,7 @@ struct http_ctx {
 struct interpreter {
   Jim_Interp *interp;
 };
-
+/*
 static int eval_prefix(Jim_Interp *interp, Jim_Obj *prefix, Jim_Obj *arg1) {
   Jim_Obj *call = Jim_DuplicateObj(interp, prefix);
   Jim_IncrRefCount(call);
@@ -95,7 +95,7 @@ static int eval_prefix(Jim_Interp *interp, Jim_Obj *prefix, Jim_Obj *arg1) {
   Jim_DecrRefCount(interp, call);
   return rc;
 }
-
+*/
 static size_t write_cb(char *ptr, size_t size, size_t nmeb, void *user_data) {
   struct http_ctx *ctx = (struct http_ctx *)user_data;
   size_t n = size * nmeb;
@@ -340,7 +340,6 @@ static int flux_obj_command(Jim_Interp *interp, int argc,
       h_ctx->eff_url = NULL;
     }
 
-    puts("sending HTTP");
     int rc = http_send(h);
     if (rc != HTTP_OK) return JIM_ERR;
 
@@ -519,7 +518,7 @@ interpreter *interpreter_new(void) {
   Jim_RegisterCoreCommands(jim);
   Jim_InitStaticExtensions(jim);
 
-  if (Jim_Eval(jim, (char *)src_dsl_tcl) != JIM_OK) {
+  if (Jim_Eval(jim, (char *)tcl_dsl_tcl) != JIM_OK) {
     fprintf(stderr, "[flux] failed to load Flux stdlib\n");
     print_error(jim);
     Jim_FreeInterp(jim);

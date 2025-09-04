@@ -6,7 +6,7 @@ config {
 
 globals {
     set BUILD_FOLDER build
-    set TCL_LIB src/dsl.tcl
+    set TCL_LIB tcl/dsl.tcl
     set TCL_C src/dsl.h
     set CC gcc
     set LINK_OPTS [list -ltcl -ljim -lcrypto -lcurl]

@@ -246,19 +246,17 @@ http_result http_set_option_ca_path(http *h, char *ca_path) {
 }
 
 http_result http_send(http *h) {
-  puts("curl easy perform");
+  // TODO remove
   curl_easy_setopt(h->curl, CURLOPT_VERBOSE, 1L);
   CURLcode result = curl_easy_perform(h->curl);
 
   if (result == CURLE_OK) {
-    curl_easy_reset(h->curl);
     curl_slist_free_all(h->headers);
 
     return HTTP_OK;
   }
 
   curl_slist_free_all(h->headers);
-  curl_easy_reset(h->curl);
 
   return HTTP_ERROR;
 }

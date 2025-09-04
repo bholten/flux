@@ -1,3 +1,5 @@
+package require json
+
 namespace eval ::flux::assert {
     variable response
 
@@ -83,7 +85,7 @@ namespace eval ::flux::assert {
         set vals [dict get $headers $key]
         set first [lindex $vals 0]
 
-        if {$fist ne $expected} {
+        if {$first ne $expected} {
             fail "header_equal: expected <$expected> got <$first> for $name"
         }
     }
@@ -144,7 +146,6 @@ namespace eval ::flux {
     set request {}
     set steps {}
     set response ""
-
 
     proc headers {hds} {
         variable request
@@ -271,8 +272,6 @@ namespace eval ::flux {
 
             $h perform
             set response [$h result]
-            puts "RESULT $response"
-            $h reset
 
             if {$assertions ne {}} {
                 namespace eval assert [list variable response $response]
@@ -280,6 +279,8 @@ namespace eval ::flux {
                     $assertions
                 }]
             }
+
+            $h reset
         }
     }
 }

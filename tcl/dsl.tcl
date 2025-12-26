@@ -2,21 +2,12 @@ package require json
 
 namespace eval ::flux::assert {
     variable response
-
-    variable failures
-    set failure 0
-
-    variable status_code
-    variable content_type
-    variable body
-    variable headers
-    variable json
-
-    set status_code -1
-    set content_type ""
-    set body {}
-    set headers {}
-    set json {}
+    variable failures 0
+    variable status_code -1
+    variable content_type ""
+    variable body {}
+    variable headers {}
+    variable json {}
 
     proc _unescape {seg} {
         set seg [string map [list ~1 / ~0 ~] $seg]

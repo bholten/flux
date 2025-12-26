@@ -8,7 +8,7 @@ int main(int argc, const char **argv) {
 
   if (!interp) {
     fprintf(stderr, "Failed to initialize interpreter\n");
-    exit(1);
+    return EXIT_FAILURE;
   }
 
   if (argc < 2) {

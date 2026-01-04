@@ -1,0 +1,64 @@
+# Example 9: API Workflow
+#
+# This example demonstrates a realistic API testing workflow:
+# testing a sequence of related API operations.
+#
+# Run with: ./build/flux examples/09_api_workflow.lcl
+
+Flux::Suite "API Workflow - CRUD Operations" {
+
+    Flux::Case "POST creates resource" {
+        POST https://httpbin.org/post {
+            header "Content-Type: application/json"
+            header "Authorization: Bearer test-token"
+
+            body {{"username": "newuser", "email": "test@example.com"}}
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "newuser"
+                Flux::contains $body "test@example.com"
+            }
+        }
+    }
+
+    Flux::Case "GET retrieves resource" {
+        GET https://httpbin.org/get {
+            on_response {
+                Flux::eq $status_code 200
+            }
+        }
+    }
+
+}
+
+Flux::Suite "API Workflow - Error Handling" {
+
+    Flux::Case "handle 404 not found" {
+        GET https://httpbin.org/status/404 {
+            on_response {
+                Flux::eq $status_code 404
+            }
+        }
+    }
+
+    Flux::Case "handle 500 server error" {
+        GET https://httpbin.org/status/500 {
+            on_response {
+                Flux::eq $status_code 500
+            }
+        }
+    }
+
+    Flux::Case "verify delay endpoint" {
+        GET https://httpbin.org/delay/1 {
+            timeout_ms 5000
+
+            on_response {
+                Flux::eq $status_code 200
+                puts "Request completed in $total_time seconds"
+            }
+        }
+    }
+
+}

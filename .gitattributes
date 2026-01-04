@@ -1,2 +1,1 @@
-Dagwood* linguist-language=Tcl
-**/Dagwood* linguist-language=Tcl
+*.lcl linguist-language=tcl

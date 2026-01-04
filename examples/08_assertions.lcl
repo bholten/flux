@@ -1,0 +1,57 @@
+# Example 8: Available Assertions
+#
+# Flux provides several assertion functions for validating responses:
+# - Flux::assert {condition}            - Assert condition is true
+# - Flux::assert_msg {condition} {msg}  - Assert with custom message
+# - Flux::eq {actual} {expected}        - Assert equality
+# - Flux::ne {actual} {expected}        - Assert not equal
+# - Flux::contains {haystack} {needle}  - Assert string contains substring
+# - Flux::header_exists {headers} {name} - Assert header exists
+# - Flux::header_eq {headers} {name} {expected} - Assert header value
+#
+# Run with: ./build/flux examples/08_assertions.lcl
+
+Flux::Suite "Assertions" {
+
+    Flux::Case "equality assertions" {
+        GET https://httpbin.org/status/201 {
+            on_response {
+                # Assert exact equality
+                Flux::eq $status_code 201
+
+                # Assert not equal
+                Flux::ne $status_code 200
+            }
+        }
+    }
+
+    Flux::Case "string contains" {
+        GET https://httpbin.org/html {
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "<html>"
+                Flux::contains $body "Herman Melville"
+            }
+        }
+    }
+
+    Flux::Case "custom assertions" {
+        GET https://httpbin.org/get {
+            on_response {
+                # Assert with condition
+                Flux::assert [== $status_code 200]
+                Flux::assert [> [String::length $body] 0]
+            }
+        }
+    }
+
+    Flux::Case "header assertions" {
+        GET https://httpbin.org/response-headers?X-Test=hello {
+            on_response {
+                Flux::eq $status_code 200
+                # Note: headers are lowercase in the headers dict
+                Flux::header_exists $headers "content-type"
+            }
+        }
+    }
+}

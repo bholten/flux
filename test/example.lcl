@@ -1,0 +1,70 @@
+# Example Flux test file using LCL DSL
+#
+# Run with: ./build/flux test/example.lcl
+# Requires: docker-compose up (echo server on port 8080)
+
+Flux::Suite "Echo Server Tests" {
+
+    Flux::Case "GET request returns 200" {
+        GET http://localhost:8080/test {
+            headers {
+                User-Agent: Flux/1.0
+                Accept: application/json
+            }
+
+            on_response {
+                Flux::eq $status_code 200
+                puts [String::concat "Response time: " [String::concat $total_time "s"]]
+            }
+        }
+    }
+
+    Flux::Case "POST with JSON body" {
+        var user_id {}
+
+        POST http://localhost:8080/api/users {
+            headers {
+                Content-Type: application/json
+                Accept: application/json
+            }
+
+            body {{"name": "Alice", "email": "alice@example.com"}}
+
+            on_response {
+                Flux::eq $status_code 200
+                # Echo server returns what we sent
+                Flux::contains $body "Alice"
+            }
+        }
+    }
+
+    Flux::Case "Variable passing between requests" {
+        var token {}
+
+        # First request: get a token
+        GET http://localhost:8080/auth/token {
+            on_response {
+                Flux::eq $status_code 200
+                # In a real scenario, we'd extract from JSON
+                set! token "fake-token-123"
+            }
+        }
+
+        # Second request: use the token
+        GET http://localhost:8080/api/protected {
+            header [String::concat "Authorization: Bearer " $token]
+
+            on_response {
+                Flux::eq $status_code 200
+            }
+        }
+    }
+}
+
+# Simple standalone request (no Suite/Case)
+# Uncomment to test:
+# GET http://localhost:8080/health {
+#     on_response {
+#         puts [String::concat "Health check: " $status_code]
+#     }
+# }

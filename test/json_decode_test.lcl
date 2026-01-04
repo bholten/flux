@@ -1,0 +1,11 @@
+# Test json::decode directly
+
+let test_json {{"name": "test", "value": 123}}
+puts "Input: $test_json"
+
+let decoded [json::decode $test_json]
+puts "Decoded:"
+puts $decoded
+
+let name [get $decoded "name"]
+puts "Name: $name"

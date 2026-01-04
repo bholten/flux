@@ -1,0 +1,19 @@
+# Debug - test json:: visibility
+
+puts "Testing json::decode at top level..."
+let test [json::decode {{"a": 1}}]
+puts "Top level: $test"
+
+GET https://httpbin.org/get {
+    on_response {
+        puts "In on_response callback..."
+        puts "Body first 50: [String::range $body 0 50]"
+
+        # Check what commands are available
+        puts "Testing get command..."
+        let x [dict a 1 b 2]
+        puts "Dict: $x"
+        let a [get $x "a"]
+        puts "Get a: $a"
+    }
+}

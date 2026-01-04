@@ -1,0 +1,15 @@
+# Test if json::decode works at top level after DSL is loaded
+
+puts "Testing json::decode at top level..."
+let test [json::decode {{"a": 1, "b": 2}}]
+puts "Decoded: $test"
+
+puts "Testing inside a simple proc..."
+proc test_json {} {
+    let inner [json::decode {{"x": 42}}]
+    puts "Inside proc: $inner"
+    return $inner
+}
+
+let result [test_json]
+puts "Result: $result"

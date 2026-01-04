@@ -1,0 +1,19 @@
+# Simpler test of json_at
+
+GET https://httpbin.org/json {
+    on_response {
+        puts "JSON: $json"
+
+        # Try direct get first
+        puts "Direct get slideshow..."
+        let ss [get $json "slideshow"]
+        puts "Slideshow: $ss"
+
+        puts "Get title from slideshow..."
+        let title [get $ss "title"]
+        puts "Title: $title"
+
+        # Now try Flux::json_at
+        puts "Trying Flux::json_at..."
+    }
+}

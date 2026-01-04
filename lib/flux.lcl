@@ -1,0 +1,461 @@
+# Flux - HTTP Testing Framework DSL
+#
+# Uses LCL's lexical scoping for clean variable passing between requests.
+
+namespace eval Flux {
+    # Configuration (extensible for future options)
+    var _config [dict stop_on_failure 1]
+
+    # Test collection state
+    var _suites [list]
+    var _current_suite {}
+    var _current_cases [list]
+
+    # Results tracking
+    var _results [list]
+    var _failed 0
+}
+
+# ============================================================================
+# Assertions
+# ============================================================================
+
+proc Flux::assert {condition} {
+    if [not $condition] {
+        error "Assertion failed"
+    }
+}
+
+proc Flux::assert_msg {condition message} {
+    if [not $condition] {
+        error "Assertion failed: $message"
+    }
+}
+
+proc Flux::eq {actual expected} {
+    if [!= $actual $expected] {
+        error "Expected <$expected> but got <$actual>"
+    }
+}
+
+proc Flux::ne {actual expected} {
+    if [== $actual $expected] {
+        error "Expected value to not equal <$expected>"
+    }
+}
+
+proc Flux::contains {haystack needle} {
+    if [< [String::find $haystack $needle] 0] {
+        error "Expected <$haystack> to contain <$needle>"
+    }
+}
+
+proc Flux::header_exists {headers name} {
+    let key [String::lower $name]
+    if [not [has? $headers $key]] {
+        error "Expected header <$name> to exist"
+    }
+}
+
+proc Flux::header_eq {headers name expected} {
+    let key [String::lower $name]
+    if [not [has? $headers $key]] {
+        error "Expected header <$name> to exist"
+    }
+    let actual [get [get $headers $key] 0]
+    if [!= $actual $expected] {
+        error "Header <$name>: expected <$expected> got <$actual>"
+    }
+}
+
+# JSON pointer access (RFC 6901)
+proc Flux::json_at {data pointer} {
+    if [== $pointer ""] { return $data }
+    if [== $pointer "/"] { return $data }
+
+    if [!= [String::range $pointer 0 1] "/"] {
+        error "JSON pointer must start with /"
+    }
+
+    var node $data
+    let segments [List::slice [String::split $pointer "/"] 1 -1]
+
+    foreach raw $segments {
+        # Unescape ~1 -> / and ~0 -> ~
+        let seg [String::replace [String::replace $raw "~1" "/"] "~0" "~"]
+
+        if [has? $node $seg] {
+            set! node [get $node $seg]
+        } elseif [list? $node] {
+            let idx [int $seg]
+            if [< $idx [len $node]] {
+                set! node [get $node $idx]
+            } else {
+                error "JSON pointer path not found: $pointer"
+            }
+        } else {
+            error "JSON pointer path not found: $pointer"
+        }
+    }
+
+    return $node
+}
+
+# ============================================================================
+# HTTP Request Execution
+# ============================================================================
+
+proc Flux::_execute_request {verb url request_config} {
+    curl::init
+    let c [curl::new]
+
+    curl::set_url $c $url
+    curl::set_verb $c $verb
+
+    # Apply headers
+    if [has? $request_config headers] {
+        foreach h [get $request_config headers] {
+            curl::set_header $c $h
+        }
+    }
+
+    # Apply body
+    if [has? $request_config body] {
+        curl::set_body $c [get $request_config body]
+    }
+
+    # Apply options
+    if [has? $request_config options] {
+        let opts [get $request_config options]
+
+        if [has? $opts timeout_ms] {
+            curl::set_timeout_ms $c [get $opts timeout_ms]
+        }
+        if [has? $opts connection_timeout_ms] {
+            curl::set_connection_timeout_ms $c [get $opts connection_timeout_ms]
+        }
+        if [has? $opts accept_timeout_ms] {
+            curl::set_accept_timeout_ms $c [get $opts accept_timeout_ms]
+        }
+        if [has? $opts verbose] {
+            curl::set_verbose $c [get $opts verbose]
+        }
+        if [has? $opts follow_location] {
+            curl::set_follow_location $c [get $opts follow_location]
+        }
+        if [has? $opts ssl_verify_peer] {
+            curl::set_ssl_verify_peer $c [get $opts ssl_verify_peer]
+        }
+        if [has? $opts ssl_verify_host] {
+            curl::set_ssl_verify_host $c [get $opts ssl_verify_host]
+        }
+        if [has? $opts user_agent] {
+            curl::set_user_agent $c [get $opts user_agent]
+        }
+    }
+
+    # Capture response body
+    var response_body {}
+
+    curl::set_write_callback $c [lambda {chunk} {
+        set! response_body "$response_body$chunk"
+    }]
+
+    # Perform the request
+    curl::perform $c
+
+    # Gather response info
+    let status_code [curl::get_response_code $c]
+    let content_type [curl::get_content_type $c]
+    let effective_url [curl::get_effective_url $c]
+    let total_time [curl::get_total_time $c]
+
+    # Build headers dict from content-type
+    var headers [dict]
+    if [not [empty? $content_type]] {
+        set! headers [put $headers "content-type" [list $content_type]]
+    }
+
+    # Try to parse body as JSON if content-type suggests it
+    var parsed_json {}
+    if [>= [String::find $content_type "application/json"] 0] {
+        if [catch { json::decode $response_body } result _err] {
+            # JSON parse failed, leave parsed_json empty
+        } else {
+            set! parsed_json $result
+        }
+    }
+
+    # Build response dict
+    let response [dict \
+        status_code $status_code \
+        body $response_body \
+        headers $headers \
+        json $parsed_json \
+        content_type $content_type \
+        effective_url $effective_url \
+        total_time $total_time]
+
+    return $response
+}
+
+# ============================================================================
+# DSL: Request Builder
+# ============================================================================
+
+# Internal: build request from DSL block
+proc Flux::_build_request {syntax_body} {
+    var config [dict headers [list] options [dict]]
+    var on_response_callback {}
+
+    # Define DSL commands that will be available in the block
+    proc headers {hds} {
+        let lines [String::split $hds "\n"]
+        foreach line $lines {
+            let trimmed [String::trim $line]
+            if [not [empty? $trimmed]] {
+                let current [get $config headers]
+                set! config [put $config headers [List::push $current $trimmed]]
+            }
+        }
+    }
+
+    proc header {h} {
+        let current [get $config headers]
+        set! config [put $config headers [List::push $current $h]]
+    }
+
+    proc body {b} {
+        set! config [put $config body $b]
+    }
+
+    proc timeout_ms {ms} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts timeout_ms $ms]]
+    }
+
+    proc connection_timeout_ms {ms} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts connection_timeout_ms $ms]]
+    }
+
+    proc accept_timeout_ms {ms} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts accept_timeout_ms $ms]]
+    }
+
+    proc verbose {v} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts verbose $v]]
+    }
+
+    proc follow_redirects {v} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts follow_location $v]]
+    }
+
+    proc ssl_verify {peer host} {
+        let opts [get $config options]
+        set! opts [put $opts ssl_verify_peer $peer]
+        set! opts [put $opts ssl_verify_host $host]
+        set! config [put $config options $opts]
+    }
+
+    proc ssl_verify_peer {peer} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts ssl_verify_peer $peer]]
+    }
+
+    proc user_agent {ua} {
+        let opts [get $config options]
+        set! config [put $config options [put $opts user_agent $ua]]
+    }
+
+    proc on_response {callback_body} {
+        set! on_response_callback $callback_body
+    }
+
+    # Execute the syntax body to collect configuration
+    eval $syntax_body
+
+    return [dict config $config on_response $on_response_callback]
+}
+
+# Create HTTP verb command
+proc Flux::_make_request {verb url syntax_body} {
+    let built [Flux::_build_request $syntax_body]
+    let config [get $built config]
+    let on_response_cb [get $built on_response]
+
+    # Execute the request immediately
+    let response [Flux::_execute_request $verb $url $config]
+
+    # If there's an on_response callback, execute it with response variables in scope
+    if [not [empty? $on_response_cb]] {
+        # Bind response variables for the callback
+        let status_code [get $response status_code]
+        let body [get $response body]
+        let headers [get $response headers]
+        let json [get $response json]
+        let content_type [get $response content_type]
+        let effective_url [get $response effective_url]
+        let total_time [get $response total_time]
+
+        # Execute the callback - it has access to all the above via closure
+        eval $on_response_cb
+    }
+
+    return $response
+}
+
+# HTTP verb commands
+# Note: Using let + return pattern to work around LCL tail-call closure bug
+proc GET {url syntax_body} {
+    let result [Flux::_make_request "GET" $url $syntax_body]
+    return $result
+}
+
+proc POST {url syntax_body} {
+    let result [Flux::_make_request "POST" $url $syntax_body]
+    return $result
+}
+
+proc PUT {url syntax_body} {
+    let result [Flux::_make_request "PUT" $url $syntax_body]
+    return $result
+}
+
+proc DELETE {url syntax_body} {
+    let result [Flux::_make_request "DELETE" $url $syntax_body]
+    return $result
+}
+
+proc PATCH {url syntax_body} {
+    let result [Flux::_make_request "PATCH" $url $syntax_body]
+    return $result
+}
+
+proc OPTIONS {url syntax_body} {
+    let result [Flux::_make_request "OPTIONS" $url $syntax_body]
+    return $result
+}
+
+proc HEAD {url syntax_body} {
+    let result [Flux::_make_request "HEAD" $url $syntax_body]
+    return $result
+}
+
+# ============================================================================
+# Test Organization: Suite and Case
+# ============================================================================
+
+proc Flux::Suite {name suite_body} {
+    # Save current state
+    let prev_cases $Flux::_current_cases
+    set! Flux::_current_cases [list]
+    set! Flux::_current_suite $name
+
+    # Execute suite body to collect cases
+    eval $suite_body
+
+    # Store the suite
+    let suite [dict name $name cases $Flux::_current_cases]
+    set! Flux::_suites [List::push $Flux::_suites $suite]
+
+    # Restore state
+    set! Flux::_current_cases $prev_cases
+    set! Flux::_current_suite {}
+}
+
+proc Flux::Case {name case_body} {
+    let case_def [dict name $name body $case_body]
+    set! Flux::_current_cases [List::push $Flux::_current_cases $case_def]
+}
+
+# ============================================================================
+# Test Execution
+# ============================================================================
+
+proc Flux::run {} {
+    set! Flux::_failed 0
+    set! Flux::_results [list]
+
+    let stop_on_failure [get $Flux::_config stop_on_failure]
+    var total_cases 0
+    var passed_cases 0
+    var failed_cases 0
+
+    puts ""
+    puts "Running Flux test suites..."
+    puts ""
+
+    foreach suite $Flux::_suites {
+        let suite_name [get $suite name]
+        let cases [get $suite cases]
+
+        puts "Suite: $suite_name"
+
+        foreach case_def $cases {
+            let case_name [get $case_def name]
+            let case_body [get $case_def body]
+
+            set! total_cases [+ $total_cases 1]
+
+            # Try to run the case
+            if [catch { eval $case_body } _result _err] {
+                # Test failed
+                set! failed_cases [+ $failed_cases 1]
+                set! Flux::_failed 1
+                puts "  FAIL: $case_name"
+                puts "        $_err"
+
+                let result [dict status "failed" name $case_name error $_err]
+                set! Flux::_results [List::push $Flux::_results $result]
+
+                if $stop_on_failure {
+                    puts ""
+                    puts "Stopping on first failure."
+                    break
+                }
+            } else {
+                # Test passed
+                set! passed_cases [+ $passed_cases 1]
+                puts "  PASS: $case_name"
+
+                let result [dict status "passed" name $case_name]
+                set! Flux::_results [List::push $Flux::_results $result]
+            }
+        }
+
+        if [and $stop_on_failure $Flux::_failed] {
+            break
+        }
+
+        puts ""
+    }
+
+    # Summary
+    puts "----------------------------------------"
+    puts "Total: $total_cases, Passed: $passed_cases, Failed: $failed_cases"
+
+    if $Flux::_failed {
+        puts ""
+        puts "Some tests failed."
+    } else {
+        puts ""
+        puts "All tests passed!"
+    }
+
+    return [dict total $total_cases passed $passed_cases failed $failed_cases]
+}
+
+# Configure Flux behavior
+proc Flux::configure {option value} {
+    set! Flux::_config [put $Flux::_config $option $value]
+}
+
+# For simpler scripts that don't use Suite/Case, just run directly
+proc Flux::run_simple {} {
+    # No-op, requests execute immediately
+    puts "Flux: All requests completed."
+}

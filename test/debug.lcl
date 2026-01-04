@@ -1,0 +1,27 @@
+# Debug test to isolate issues
+
+puts "Testing curl::init..."
+curl::init
+puts "curl::init OK"
+
+puts "Testing curl::new..."
+let c [curl::new]
+puts "curl::new OK - handle: $c"
+
+puts "Testing curl::set_url..."
+curl::set_url $c "https://httpbin.org/get"
+puts "curl::set_url OK"
+
+puts "Testing curl::set_verb..."
+curl::set_verb $c "GET"
+puts "curl::set_verb OK"
+
+puts "Testing curl::perform..."
+curl::perform $c
+puts "curl::perform OK"
+
+puts "Testing curl::get_response_code..."
+let status [curl::get_response_code $c]
+puts "Status code: $status"
+
+puts "All curl tests passed!"

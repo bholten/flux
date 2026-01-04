@@ -1,0 +1,14 @@
+# Test Flux::json_at
+
+GET https://httpbin.org/json {
+    on_response {
+        puts "Status: $status_code"
+        puts "JSON empty: [empty? $json]"
+        puts "JSON:"
+        puts $json
+
+        puts "Testing Flux::json_at..."
+        let title [Flux::json_at $json "/slideshow/title"]
+        puts "Title: $title"
+    }
+}

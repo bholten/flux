@@ -1,0 +1,39 @@
+# Example 4: Different HTTP Methods
+#
+# Flux supports all common HTTP methods: GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD
+#
+# Run with: ./build/flux examples/04_http_methods.lcl
+
+Flux::Suite "HTTP Methods" {
+
+    Flux::Case "PUT request" {
+        PUT https://httpbin.org/put {
+            header "Content-Type: application/json"
+            body {{"id": 1, "name": "Updated Item"}}
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "Updated Item"
+            }
+        }
+    }
+
+    Flux::Case "PATCH request" {
+        PATCH https://httpbin.org/patch {
+            header "Content-Type: application/json"
+            body {{"name": "Patched"}}
+
+            on_response {
+                Flux::eq $status_code 200
+            }
+        }
+    }
+
+    Flux::Case "DELETE request" {
+        DELETE https://httpbin.org/delete {
+            on_response {
+                Flux::eq $status_code 200
+            }
+        }
+    }
+}

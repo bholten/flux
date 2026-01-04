@@ -1,0 +1,38 @@
+# Manual test of _execute_request flow
+
+curl::init
+let c [curl::new]
+
+curl::set_url $c "https://httpbin.org/get"
+curl::set_verb $c "GET"
+
+var response_body {}
+
+curl::set_write_callback $c [lambda {chunk} {
+    set! response_body "$response_body$chunk"
+}]
+
+curl::perform $c
+
+let status_code [curl::get_response_code $c]
+let content_type [curl::get_content_type $c]
+
+puts "Status: $status_code"
+puts "Content-Type: $content_type"
+puts "Body length: [String::length $response_body]"
+
+# Try to parse JSON
+if [>= [String::find $content_type "application/json"] 0] {
+    puts "Content-Type is JSON, attempting decode..."
+    if [catch { json::decode $response_body } parsed _err] {
+        puts "JSON decode failed: $_err"
+    } else {
+        puts "JSON decode succeeded"
+        puts "Parsed:"
+        puts $parsed
+        let url [get $parsed "url"]
+        puts "URL from JSON: $url"
+    }
+} else {
+    puts "Content-Type is not JSON"
+}

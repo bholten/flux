@@ -150,16 +150,16 @@ proc Flux::_parse_url {url} {
     var authority {}
     var path "/"
     var query {}
-
     var rest $url
-
     let scheme_end [String::find $rest "://"]
+
     if [>= $scheme_end 0] {
         set! scheme [String::range $rest 0 $scheme_end]
         set! rest [String::range $rest [+ $scheme_end 3] [String::length $rest]]
     }
 
     let path_start [String::find $rest "/"]
+
     if [>= $path_start 0] {
         set! authority [String::range $rest 0 $path_start]
         set! rest [String::range $rest $path_start [String::length $rest]]
@@ -169,6 +169,7 @@ proc Flux::_parse_url {url} {
     }
 
     let query_start [String::find $rest "?"]
+
     if [>= $query_start 0] {
         set! path [String::range $rest 0 $query_start]
         set! query [String::range $rest [+ $query_start 1] [String::length $rest]]
@@ -183,22 +184,27 @@ proc Flux::_parse_url {url} {
 proc Flux::_build_request_target {url_parts} {
     let p [get $url_parts path]
     let q [get $url_parts query]
+
     if [not [empty? $q]] { return "$p?$q" } { return $p }
 }
 
 ;; Helper: build content-digest header value
 proc Flux::_build_content_digest {body} {
     if [empty? $body] { return {} }
+
     let hash [crypto::sha256 $body]
+
     return [String::join ({sha-256=:} $hash {:}) {}]
 }
 
 ;; Helper: get header value from headers dict
 proc Flux::_get_header_value {headers_dict component} {
     let lower_component [String::lower $component]
+
     if [has? $headers_dict $lower_component] {
         return [get $headers_dict $lower_component]
     }
+
     return {}
 }
 
@@ -209,18 +215,19 @@ proc Flux::_build_signature_base {verb url headers_dict body covered_components 
     let url_parts [Flux::_parse_url $url]
 
     foreach component $covered_components {
-        let value [cond \
-            [== $component "@method"] [String::upper $verb] \
-            [== $component "@authority"] [get $url_parts authority] \
-            [== $component "@scheme"] [get $url_parts scheme] \
-            [== $component "@path"] [get $url_parts path] \
-            [== $component "@query"] [get $url_parts query] \
-            [== $component "@target-uri"] $url \
-            [== $component "@request-target"] [Flux::_build_request_target $url_parts] \
-            [== $component "content-digest"] [Flux::_build_content_digest $body] \
+        let value [cond
+            [== $component "@method"] [String::upper $verb]
+            [== $component "@authority"] [get $url_parts authority]
+            [== $component "@scheme"] [get $url_parts scheme]
+            [== $component "@path"] [get $url_parts path]
+            [== $component "@query"] [get $url_parts query]
+            [== $component "@target-uri"] $url
+            [== $component "@request-target"] [Flux::_build_request_target $url_parts]
+            [== $component "content-digest"] [Flux::_build_content_digest $body]
             else [Flux::_get_header_value $headers_dict $component]]
 
         let line "\"$component\": $value"
+
         set! lines [List::push $lines $line]
     }
 
@@ -231,19 +238,23 @@ proc Flux::_build_signature_base {verb url headers_dict body covered_components 
 
 proc Flux::_build_sig_params {covered_components key_id algorithm created} {
     var component_list [list]
+
     foreach c $covered_components {
         set! component_list [List::push $component_list "\"$c\""]
     }
+
     let components_str [String::join $component_list " "]
 
     return "($components_str);created=$created;keyid=\"$key_id\";alg=\"$algorithm\""
 }
 
+;; TODO this is silly
 proc Flux::_get_unix_time {} {
     let tmpfile "/tmp/.flux_time_tmp"
     io::write_file $tmpfile {}
     let ts [io::file_mtime $tmpfile]
     io::remove $tmpfile
+
     return $ts
 }
 
@@ -253,14 +264,13 @@ proc Flux::_apply_http_signature {verb url headers_list body sig_config} {
     let algorithm [get $sig_config algorithm]
     let covered [get $sig_config covered_components]
     let sig_name [get $sig_config name]
-
     let created [Flux::_get_unix_time]
-
     let sig_params [Flux::_build_sig_params $covered $key_id $algorithm $created]
-
-    var headers_dict [dict]
+    var headers_dict #{}
+    
     foreach h $headers_list {
         let colon_pos [String::find $h ":"]
+        
         if [>= $colon_pos 0] {
             let name [String::lower [String::trim [String::range $h 0 $colon_pos]]]
             let val [String::trim [String::range $h [+ $colon_pos 1] [String::length $h]]]
@@ -270,19 +280,20 @@ proc Flux::_apply_http_signature {verb url headers_list body sig_config} {
 
     let sig_base [Flux::_build_signature_base $verb $url $headers_dict $body $covered $sig_params]
 
-    let signature [case $algorithm \
-        {hmac-sha256}       [crypto::hmac $key_pem $sig_base sha256] \
-        {rsa-pss-sha256}    [crypto::sign_rsa_pss $key_pem $sig_base sha256] \
-        {rsa-pss-sha512}    [crypto::sign_rsa_pss $key_pem $sig_base sha512] \
-        {ecdsa-p256-sha256} [crypto::sign_ecdsa $key_pem $sig_base p256] \
-        {ecdsa-p384-sha384} [crypto::sign_ecdsa $key_pem $sig_base p384] \
+    let signature [case $algorithm
+        {hmac-sha256}       [crypto::hmac $key_pem $sig_base sha256]
+        {rsa-pss-sha256}    [crypto::sign_rsa_pss $key_pem $sig_base sha256]
+        {rsa-pss-sha512}    [crypto::sign_rsa_pss $key_pem $sig_base sha512]
+        {ecdsa-p256-sha256} [crypto::sign_ecdsa $key_pem $sig_base p256]
+        {ecdsa-p384-sha384} [crypto::sign_ecdsa $key_pem $sig_base p384]
         else [error "Unsupported signature algorithm: $algorithm"]]
 
     let sig_b64 [crypto::base64_encode $signature]
-
     var new_headers $headers_list
+
     let sig_input_hdr [String::join ({Signature-Input: } $sig_name {=} $sig_params) {}]
     let sig_hdr [String::join ({Signature: } $sig_name {=:} $sig_b64 {:}) {}]
+
     set! new_headers [List::push $new_headers $sig_input_hdr]
     set! new_headers [List::push $new_headers $sig_hdr]
 
@@ -302,12 +313,14 @@ proc Flux::_execute_request {verb url request_config on_event_callback} {
 
     ;; Get body first (needed for signature computation)
     var body {}
+    
     if [has? $request_config body] {
         set! body [get $request_config body]
     }
 
     ;; Get headers
     var headers_list [list]
+
     if [has? $request_config headers] {
         set! headers_list [get $request_config headers]
     }
@@ -420,6 +433,7 @@ proc Flux::_execute_request {verb url request_config on_event_callback} {
 
     ;; Build headers dict from content-type
     var headers [dict]
+
     if [not [empty? $content_type]] {
         set! headers [put $headers "content-type" [list $content_type]]
     }
@@ -435,16 +449,17 @@ proc Flux::_execute_request {verb url request_config on_event_callback} {
     }
 
     ;; Build response dict with error info
-    var response [dict \
-        status_code $status_code \
-        body $response_body \
-        headers $headers \
-        json $parsed_json \
-        content_type $content_type \
-        effective_url $effective_url \
-        total_time $total_time \
-        error_code $error_code \
-        is_timeout $is_timeout]
+    var response #{
+        status_code $status_code
+        body $response_body
+        headers $headers
+        json $parsed_json
+        content_type $content_type
+        effective_url $effective_url
+        total_time $total_time
+        error_code $error_code
+        is_timeout $is_timeout
+    }
 
     ;; Add error string only if there was an error
     if [!= $error_code 0] {
@@ -467,8 +482,10 @@ proc Flux::_build_request {syntax_body} {
     ;; Define DSL commands that will be available in the block
     proc headers {hds} {
         let lines [String::split $hds "\n"]
+
         foreach line $lines {
             let trimmed [String::trim $line]
+
             if [not [empty? $trimmed]] {
                 let current [get $config headers]
                 set! config [put $config headers [List::push $current $trimmed]]
@@ -579,7 +596,11 @@ proc Flux::_build_request {syntax_body} {
     ;; Execute the syntax body to collect configuration
     eval $syntax_body
 
-    return [dict config $config on_response $on_response_callback on_event $on_event_callback]
+    return #{
+        config $config
+        on_response $on_response_callback
+        on_event $on_event_callback
+    }
 }
 
 ;; Create HTTP verb command
@@ -607,6 +628,7 @@ proc Flux::_make_request {verb url syntax_body} {
         let is_timeout [get $response is_timeout]
         let error_code [get $response error_code]
         var error {}
+
         if [has? $response error] {
             set! error [get $response error]
         }

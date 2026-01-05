@@ -1,9 +1,9 @@
-# Example 9: API Workflow
-#
-# This example demonstrates a realistic API testing workflow:
-# testing a sequence of related API operations.
-#
-# Run with: ./build/flux examples/09_api_workflow.lcl
+;; Example 9: API Workflow
+;;
+;; This example demonstrates a realistic API testing workflow:
+;; testing a sequence of related API operations.
+;;
+;; Run with: ./build/flux examples/09_api_workflow.lcl
 
 Flux::Suite "API Workflow - CRUD Operations" {
 

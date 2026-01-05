@@ -1,15 +1,15 @@
-# Example 6: Response Data Variables
-#
-# The on_response callback has access to these response variables:
-# - $status_code: HTTP status code (integer)
-# - $body: Raw response body (string)
-# - $json: Parsed JSON (dict, if Content-Type is application/json)
-# - $headers: Response headers (dict)
-# - $content_type: Content-Type header value
-# - $effective_url: Final URL after redirects
-# - $total_time: Request duration in seconds
-#
-# Run with: ./build/flux examples/06_response_data.lcl
+;; Example 6: Response Data Variables
+;;
+;; The on_response callback has access to these response variables:
+;; - $status_code: HTTP status code (integer)
+;; - $body: Raw response body (string)
+;; - $json: Parsed JSON (dict, if Content-Type is application/json)
+;; - $headers: Response headers (dict)
+;; - $content_type: Content-Type header value
+;; - $effective_url: Final URL after redirects
+;; - $total_time: Request duration in seconds
+;;
+;; Run with: ./build/flux examples/06_response_data.lcl
 
 Flux::Suite "Response Data Variables" {
 

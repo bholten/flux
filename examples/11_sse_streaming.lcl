@@ -1,0 +1,51 @@
+;; Example 11: Server-Sent Events (SSE) Streaming
+;;
+;; Flux supports consuming SSE streams using the on_event callback.
+;; This enables real-time event handling from APIs that use Server-Sent Events.
+;;
+;; SSE event fields available in the on_event callback:
+;;   $data       - the event data (string)
+;;   $event_type - the event type (string, defaults to "message")
+;;   $id         - the event id (string, optional)
+;;   $retry      - the retry timeout in ms (string, optional)
+;;
+;; Additional response fields for SSE:
+;;   $is_timeout  - 1 if stream ended due to timeout, 0 otherwise
+;;   $error_code  - curl error code (0 = success, 28 = timeout)
+;;   $error       - error description (only present if error_code != 0)
+;;
+;; Run with: ./build/flux examples/11_sse_streaming.lcl
+
+;; Track received events for assertions
+var event_count 0
+var events_received []
+
+Flux::Suite "SSE Streaming" {
+
+    Flux::Case "should receive SSE events from stream" {
+        GET https://sse.dev/test {
+            ;; SSE streams run until timeout or connection close
+            timeout_ms 5000
+
+            on_event {
+                ;; Each SSE event triggers this callback
+                ;; $data contains the event data, $event_type is the event type
+                set! event_count [+ $event_count 1]
+                puts "Event ;;$event_count: type='$event_type' data='$data'"
+            }
+
+            on_response {
+                ;; Called after stream ends (timeout or server close)
+                puts "Stream ended after $event_count events"
+                ;; SSE streams typically return 200
+                Flux::eq $status_code 200
+                ;; We should have received at least one event
+                Flux::assert [> $event_count 0]
+            }
+        }
+    }
+
+}
+
+Flux::configure stop_on_failure 0
+Flux::run

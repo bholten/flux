@@ -1,9 +1,9 @@
-# Example 3: POST Request with JSON Body
-#
-# This example demonstrates sending a POST request with a JSON body
-# and validating the response.
-#
-# Run with: ./build/flux examples/03_post_json.lcl
+;; Example 3: POST Request with JSON Body
+;;
+;; This example demonstrates sending a POST request with a JSON body
+;; and validating the response.
+;;
+;; Run with: ./build/flux examples/03_post_json.lcl
 
 Flux::Suite "POST with JSON" {
 
@@ -16,7 +16,7 @@ Flux::Suite "POST with JSON" {
             on_response {
                 Flux::eq $status_code 200
 
-                # httpbin echoes back our posted data
+                ;; httpbin echoes back our posted data
                 Flux::contains $body "testuser"
                 Flux::contains $body "test@example.com"
             }

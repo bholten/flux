@@ -4,6 +4,7 @@
 
 // clang-format off
 #include <lcl.h>
+#include <lcl-crypto.h>
 #include <lcl-curl.h>
 #include <lcl-io.h>
 #include <lcl-json.h>
@@ -46,6 +47,7 @@ interpreter *interpreter_new(void) {
   lcl_register_io(lcl);
   lcl_register_json(lcl);
   lcl_register_curl(lcl);
+  lcl_register_crypto(lcl);
 
   lcl_value *result = NULL;
 

@@ -1,9 +1,9 @@
-# Example 2: Setting Request Headers
-#
-# This example shows how to set custom headers on requests.
-# Headers can be set individually or as a multi-line block.
-#
-# Run with: ./build/flux examples/02_headers.lcl
+;; Example 2: Setting Request Headers
+;;
+;; This example shows how to set custom headers on requests.
+;; Headers can be set individually or as a multi-line block.
+;;
+;; Run with: ./build/flux examples/02_headers.lcl
 
 Flux::Suite "Request Headers" {
 
@@ -17,7 +17,7 @@ Flux::Suite "Request Headers" {
 
             on_response {
                 Flux::eq $status_code 200
-                # httpbin.org/headers echoes back the headers we sent
+                ;; httpbin.org/headers echoes back the headers we sent
                 Flux::contains $body "Flux/1.0"
                 Flux::contains $body "my-value"
             }

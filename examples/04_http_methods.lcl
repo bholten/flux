@@ -1,8 +1,8 @@
-# Example 4: Different HTTP Methods
-#
-# Flux supports all common HTTP methods: GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD
-#
-# Run with: ./build/flux examples/04_http_methods.lcl
+;; Example 4: Different HTTP Methods
+;;
+;; Flux supports all common HTTP methods: GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD
+;;
+;; Run with: ./build/flux examples/04_http_methods.lcl
 
 Flux::Suite "HTTP Methods" {
 

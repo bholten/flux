@@ -17,6 +17,7 @@ set(FLUX_COMPILE_OPTIONS -Wall -Wextra -D_POSIX_C_SOURCE=200809L)
 set(LCL_BUILD_CURL ON CACHE BOOL "Build LCL CURL extension for Flux" FORCE)
 set(LCL_BUILD_IO ON CACHE BOOL "Build LCL IO extension for Flux" FORCE)
 set(LCL_BUILD_JSON ON CACHE BOOL "Build LCL JSON extension for Flux" FORCE)
+set(LCL_BUILD_CRYPTO ON CACHE BOOL "Build LCL Crypto extension for Flux" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
 
@@ -63,9 +64,10 @@ target_include_directories(flux PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-io/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-curl/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-json/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-crypto/include
 )
 
-target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json)
+target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto)
 
 add_dependencies(flux generate_dsl_header)
 

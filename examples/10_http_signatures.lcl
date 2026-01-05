@@ -1,0 +1,120 @@
+;; Example 10: HTTP Signatures (RFC 9421)
+;;
+;; Flux supports signing HTTP requests per RFC 9421.
+;; This enables authentication with APIs that require cryptographic signatures.
+;;
+;; Supported algorithms:
+;;   - hmac-sha256        (symmetric, uses shared secret)
+;;   - rsa-pss-sha256     (asymmetric, uses RSA private key)
+;;   - rsa-pss-sha512     (asymmetric, uses RSA private key)
+;;   - ecdsa-p256-sha256  (asymmetric, uses EC P-256 private key)
+;;   - ecdsa-p384-sha384  (asymmetric, uses EC P-384 private key)
+;;
+;; Covered components use RFC 9421 names as strings:
+;;   "@method", "@authority", "@path", "@query", "@target-uri"
+;;   Plus any header names like "content-type", "content-digest"
+;;
+;; Run with: ./build/flux examples/10_http_signatures.lcl
+
+;; Shared secret for HMAC signing (in real use, load from secure storage)
+let hmac_secret "super-secret-key-for-testing-only"
+
+;; RSA private key for RSA-PSS signing (2048-bit test key)
+let rsa_key {-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC+6ldVhGjCrQIh
+LH6wVWT/SF/scGZX/TDdjoHaNaVmiXd7PXWMyfzCLy2ohsxp2fmQSRF2v/zmLLHJ
+FTAxuGCASw1cC7SK8hJMu+Im1OL+DypZ8XLrTNLLixAobspPu25m0c6yd4gPnXUL
+zlmeI66KB2EnVp6Zm0C59XHpxcw5i0wBkXo8ORP5qoK5p4bvI2JpoVqS1ncMxGGU
+vpEUTY9k/KYpXAg7Ldi000fDIiu9BwmSSEdm0DLXmPJgzT9fouBouMvXCKSG5a5q
+5mRPQgO72qejJ0QLXLZPwhu8YwD+6ledAurnkxU1qohx1JuRfczGAx+yXQby2GlB
+JMAYe61pAgMBAAECggEAGz3GQcDnpITvPYXjJeIUITZV3vTthYyZK7lT31ZcSCnr
++efRHXUM3eBsJr86l7gEm4lG4VI6Zyrldgh8nKZEZB9RbrA043FFxIaNRHaH/9xw
+x0Nj3x39I2daYjU8z5eyWcrXhYZMzH2ZNUViauWIgtAparrkso0BSrIyaOWnuGYK
+PC0zeVc3hmFMBeHPkkXeHLko/2kT2twlKcJAT43wvLcLLAZltdtYAstpw7R68x15
+H5+XMxoP4nRpNQPCvJ90cXdOcH/3xsxJUAZcMiLmLbIBC/6DoXBfWbL+0ngOkD+M
+4E0No1jkp5haFdz99wwpULNWzp43X1vngX5EMNP4aQKBgQD90wyZTUoLFqHLlIWe
+EKl15bixpXXzbj8RAOsjGd3SCUPyFdk3K49t0y0Ag4qdOKwLZb18DfJYY5G63pJD
+YlKia7HD7b+g5p9sfDZqGVcoRRi5qyQn6BJ0ayjmpE1B1douDJXqA/MWbRsbppy3
+a8jWVUKAUNQ2Qjc6k6H/VNAehwKBgQDAjUEycY1Q5WutS0Mopv3mrVt/8HDnq5aP
+lLMf0Q5BdLG3cQnXWbk7K7nT2zUdHo+MPhRhdPlwegGa3Kv2OudYcdZur2uABNVD
+/HUPBVdPvWslc05wqENkT7zfdYWTbH7k2uPMObdkcZZVGUhk9VbtEpSBnZZNdk1x
+i8DnlvhgjwKBgQCfhVhRsIVsWpjsvTcMlCQseGePHhH3H757DTy6HrOOIUyWhKyz
+Q6ksuJ97xzACh2946kQgBxPcARfBfcgmmVCdy1k5bd4VXVusbpQ0MiDYqjRT2/8p
+JW0TxZU6/t+fFKu+bSJ6pGjOG1wCEMBFdnQOYB8fTa1RPGRBaC9TrRXvWQKBgAs9
+s9qwCmH4osqhJDCRXy1CXZ8geFbuC4IiWjq3R6/GkkF1Ve++izPLH7Qgjf8/M34q
+eaIe5BkO5l0WGOvtEGh3bN9VWl9E6PZpHKRd2XUMR98N1jx5dkW66fnZsIykvtu5
+c6cOj4hLoU0ihrluIT8B4K2Yd5faGjdQw1hB1go9AoGBALcl8Au86Ae0sVhpi730
+BYdndIpGV9iBq1k2CG5xhuhKkn94O3D6Vsiay1rrEZsOxE/Qk7wHuE1LoLfDc+si
+jHsc5I1AHIdcm0l0SA1Fp8foIBSFJ4YtmAAe+lKu2ZbdvtUkgjUp6SouCRqCrQVc
+W9gEujkvlmDLlWaNG5+PdPCk
+-----END PRIVATE KEY-----}
+
+Flux::Suite "HTTP Signatures" {
+
+    Flux::Case "HMAC-SHA256 signed request" {
+        POST https://httpbin.org/post {
+            header "Content-Type: application/json"
+            body {{"message": "Hello, signed world!"}}
+
+            http_signature {
+                key_id "test-key-1"
+                key_pem $hmac_secret
+                algorithm "hmac-sha256"
+                cover [list "@method" "@authority" "@path" "content-type"]
+            }
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "Signature-Input"
+                Flux::contains $body "Signature"
+                puts "HMAC signature headers were sent successfully"
+            }
+        }
+    }
+
+    Flux::Case "RSA-PSS-SHA256 signed request" {
+        GET https://httpbin.org/get {
+            http_signature {
+                key_id "rsa-test-key"
+                key_pem $rsa_key
+                algorithm "rsa-pss-sha256"
+                cover [list "@method" "@authority" "@path"]
+            }
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "Signature-Input"
+                Flux::contains $body "Signature"
+                puts "RSA-PSS signature headers were sent successfully"
+            }
+        }
+    }
+
+    Flux::Case "signature with custom headers" {
+        POST https://httpbin.org/post {
+            header "Content-Type: application/json"
+            header "X-Acme-Request-Id: req-abc-123"
+            header "X-Acme-Timestamp: 2024-01-15T10:30:00Z"
+            body {{"action": "test"}}
+
+            http_signature {
+                key_id "acme-service-key"
+                key_pem $hmac_secret
+                algorithm "hmac-sha256"
+                cover [list "@method" "@authority" "@path" "content-type" "x-acme-request-id" "x-acme-timestamp"]
+            }
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "Signature-Input"
+                Flux::contains $body "x-acme-request-id"
+                Flux::contains $body "x-acme-timestamp"
+                puts "Custom headers included in signature successfully"
+            }
+        }
+    }
+
+}
+
+Flux::configure stop_on_failure 0
+Flux::run

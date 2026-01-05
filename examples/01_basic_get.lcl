@@ -1,9 +1,9 @@
-# Example 1: Basic GET Request
-#
-# This example demonstrates the simplest possible Flux test - a GET request
-# that verifies the response status code.
-#
-# Run with: ./build/flux examples/01_basic_get.lcl
+;; Example 1: Basic GET Request
+;;
+;; This example demonstrates the simplest possible Flux test - a GET request
+;; that verifies the response status code.
+;;
+;; Run with: ./build/flux examples/01_basic_get.lcl
 
 Flux::Suite "Basic GET Request" {
 

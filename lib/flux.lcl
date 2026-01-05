@@ -1,24 +1,24 @@
-# Flux - HTTP Testing Framework DSL
-#
-# Uses LCL's lexical scoping for clean variable passing between requests.
+;; Flux - HTTP Testing Framework DSL
+;;
+;; Uses LCL's lexical scoping for clean variable passing between requests.
 
 namespace eval Flux {
-    # Configuration (extensible for future options)
+    ;; Configuration (extensible for future options)
     var _config [dict stop_on_failure 1]
 
-    # Test collection state
+    ;; Test collection state
     var _suites [list]
     var _current_suite {}
     var _current_cases [list]
 
-    # Results tracking
+    ;; Results tracking
     var _results [list]
     var _failed 0
 }
 
-# ============================================================================
-# Assertions
-# ============================================================================
+;; ============================================================================
+;; Assertions
+;; ============================================================================
 
 proc Flux::assert {condition} {
     if [not $condition] {
@@ -68,7 +68,7 @@ proc Flux::header_eq {headers name expected} {
     }
 }
 
-# JSON pointer access (RFC 6901)
+;; JSON pointer access (RFC 6901)
 proc Flux::json_at {data pointer} {
     if [== $pointer ""] { return $data }
     if [== $pointer "/"] { return $data }
@@ -81,50 +81,216 @@ proc Flux::json_at {data pointer} {
     let segments [List::slice [String::split $pointer "/"] 1 -1]
 
     foreach raw $segments {
-        # Unescape ~1 -> / and ~0 -> ~
+        ;; Unescape ~1 -> / and ~0 -> ~
         let seg [String::replace [String::replace $raw "~1" "/"] "~0" "~"]
 
         if [has? $node $seg] {
             set! node [get $node $seg]
-        } elseif [list? $node] {
-            let idx [int $seg]
-            if [< $idx [len $node]] {
-                set! node [get $node $idx]
+        } else {
+            if [list? $node] {
+                let idx [int $seg]
+                if [< $idx [len $node]] {
+                    set! node [get $node $idx]
+                } else {
+                    error "JSON pointer path not found: $pointer"
+                }
             } else {
                 error "JSON pointer path not found: $pointer"
             }
-        } else {
-            error "JSON pointer path not found: $pointer"
         }
     }
 
     return $node
 }
 
-# ============================================================================
-# HTTP Request Execution
-# ============================================================================
+;; ============================================================================
+;; HTTP Signatures (RFC 9421)
+;; ============================================================================
 
-proc Flux::_execute_request {verb url request_config} {
+;; Parse a URL into components: scheme, authority, path, query
+proc Flux::_parse_url {url} {
+    var scheme {}
+    var authority {}
+    var path "/"
+    var query {}
+
+    var rest $url
+
+    let scheme_end [String::find $rest "://"]
+    if [>= $scheme_end 0] {
+        set! scheme [String::range $rest 0 $scheme_end]
+        set! rest [String::range $rest [+ $scheme_end 3] [String::length $rest]]
+    }
+
+    let path_start [String::find $rest "/"]
+    if [>= $path_start 0] {
+        set! authority [String::range $rest 0 $path_start]
+        set! rest [String::range $rest $path_start [String::length $rest]]
+    } else {
+        set! authority $rest
+        set! rest "/"
+    }
+
+    let query_start [String::find $rest "?"]
+    if [>= $query_start 0] {
+        set! path [String::range $rest 0 $query_start]
+        set! query [String::range $rest [+ $query_start 1] [String::length $rest]]
+    } else {
+        set! path $rest
+    }
+
+    return [dict scheme $scheme authority $authority path $path query $query]
+}
+
+;; Helper: build request-target from url parts
+proc Flux::_build_request_target {url_parts} {
+    let p [get $url_parts path]
+    let q [get $url_parts query]
+    if [not [empty? $q]] { return "$p?$q" } { return $p }
+}
+
+;; Helper: build content-digest header value
+proc Flux::_build_content_digest {body} {
+    if [empty? $body] { return {} }
+    let hash [crypto::sha256 $body]
+    return [String::join ({sha-256=:} $hash {:}) {}]
+}
+
+;; Helper: get header value from headers dict
+proc Flux::_get_header_value {headers_dict component} {
+    let lower_component [String::lower $component]
+    if [has? $headers_dict $lower_component] {
+        return [get $headers_dict $lower_component]
+    }
+    return {}
+}
+
+;; Build the signature base string per RFC 9421
+;; covered_components is a list of strings like "@method" "@authority" "content-type"
+proc Flux::_build_signature_base {verb url headers_dict body covered_components sig_params} {
+    var lines [list]
+    let url_parts [Flux::_parse_url $url]
+
+    foreach component $covered_components {
+        let value [cond \
+            [== $component "@method"] [String::upper $verb] \
+            [== $component "@authority"] [get $url_parts authority] \
+            [== $component "@scheme"] [get $url_parts scheme] \
+            [== $component "@path"] [get $url_parts path] \
+            [== $component "@query"] [get $url_parts query] \
+            [== $component "@target-uri"] $url \
+            [== $component "@request-target"] [Flux::_build_request_target $url_parts] \
+            [== $component "content-digest"] [Flux::_build_content_digest $body] \
+            else [Flux::_get_header_value $headers_dict $component]]
+
+        let line "\"$component\": $value"
+        set! lines [List::push $lines $line]
+    }
+
+    set! lines [List::push $lines "\"@signature-params\": $sig_params"]
+
+    return [String::join $lines "\n"]
+}
+
+proc Flux::_build_sig_params {covered_components key_id algorithm created} {
+    var component_list [list]
+    foreach c $covered_components {
+        set! component_list [List::push $component_list "\"$c\""]
+    }
+    let components_str [String::join $component_list " "]
+
+    return "($components_str);created=$created;keyid=\"$key_id\";alg=\"$algorithm\""
+}
+
+proc Flux::_get_unix_time {} {
+    let tmpfile "/tmp/.flux_time_tmp"
+    io::write_file $tmpfile {}
+    let ts [io::file_mtime $tmpfile]
+    io::remove $tmpfile
+    return $ts
+}
+
+proc Flux::_apply_http_signature {verb url headers_list body sig_config} {
+    let key_id [get $sig_config key_id]
+    let key_pem [get $sig_config key_pem]
+    let algorithm [get $sig_config algorithm]
+    let covered [get $sig_config covered_components]
+    let sig_name [get $sig_config name]
+
+    let created [Flux::_get_unix_time]
+
+    let sig_params [Flux::_build_sig_params $covered $key_id $algorithm $created]
+
+    var headers_dict [dict]
+    foreach h $headers_list {
+        let colon_pos [String::find $h ":"]
+        if [>= $colon_pos 0] {
+            let name [String::lower [String::trim [String::range $h 0 $colon_pos]]]
+            let val [String::trim [String::range $h [+ $colon_pos 1] [String::length $h]]]
+            set! headers_dict [put $headers_dict $name $val]
+        }
+    }
+
+    let sig_base [Flux::_build_signature_base $verb $url $headers_dict $body $covered $sig_params]
+
+    let signature [case $algorithm \
+        {hmac-sha256}       [crypto::hmac $key_pem $sig_base sha256] \
+        {rsa-pss-sha256}    [crypto::sign_rsa_pss $key_pem $sig_base sha256] \
+        {rsa-pss-sha512}    [crypto::sign_rsa_pss $key_pem $sig_base sha512] \
+        {ecdsa-p256-sha256} [crypto::sign_ecdsa $key_pem $sig_base p256] \
+        {ecdsa-p384-sha384} [crypto::sign_ecdsa $key_pem $sig_base p384] \
+        else [error "Unsupported signature algorithm: $algorithm"]]
+
+    let sig_b64 [crypto::base64_encode $signature]
+
+    var new_headers $headers_list
+    let sig_input_hdr [String::join ({Signature-Input: } $sig_name {=} $sig_params) {}]
+    let sig_hdr [String::join ({Signature: } $sig_name {=:} $sig_b64 {:}) {}]
+    set! new_headers [List::push $new_headers $sig_input_hdr]
+    set! new_headers [List::push $new_headers $sig_hdr]
+
+    return $new_headers
+}
+
+;; ============================================================================
+;; HTTP Request Execution
+;; ============================================================================
+
+proc Flux::_execute_request {verb url request_config on_event_callback} {
     curl::init
     let c [curl::new]
 
     curl::set_url $c $url
     curl::set_verb $c $verb
 
-    # Apply headers
-    if [has? $request_config headers] {
-        foreach h [get $request_config headers] {
-            curl::set_header $c $h
-        }
-    }
-
-    # Apply body
+    ;; Get body first (needed for signature computation)
+    var body {}
     if [has? $request_config body] {
-        curl::set_body $c [get $request_config body]
+        set! body [get $request_config body]
     }
 
-    # Apply options
+    ;; Get headers
+    var headers_list [list]
+    if [has? $request_config headers] {
+        set! headers_list [get $request_config headers]
+    }
+
+    ;; Apply HTTP signature if configured (modifies headers_list)
+    if [has? $request_config http_signature] {
+        set! headers_list [Flux::_apply_http_signature $verb $url $headers_list $body [get $request_config http_signature]]
+    }
+
+    ;; Apply headers to curl
+    foreach h $headers_list {
+        curl::set_header $c $h
+    }
+
+    ;; Apply body
+    if [not [empty? $body]] {
+        curl::set_body $c $body
+    }
+
+    ;; Apply options
     if [has? $request_config options] {
         let opts [get $request_config options]
 
@@ -154,61 +320,114 @@ proc Flux::_execute_request {verb url request_config} {
         }
     }
 
-    # Capture response body
+    ;; Capture response body (for non-SSE requests) or set up SSE callback
     var response_body {}
 
-    curl::set_write_callback $c [lambda {chunk} {
-        set! response_body "$response_body$chunk"
-    }]
+    if [not [empty? $on_event_callback]] {
+        ;; SSE mode: set up SSE callback to process streaming events
+        curl::set_sse_callback $c [lambda {event} {
+            ;; Make event data available for the callback
+            var data {}
+            var event_type {}
+            var id {}
+            var retry {}
+            if [has? $event data] {
+                set! data [get $event data]
+            }
+            if [has? $event event] {
+                set! event_type [get $event event]
+            }
+            if [has? $event id] {
+                set! id [get $event id]
+            }
+            if [has? $event retry] {
+                set! retry [get $event retry]
+            }
+            ;; Execute the user's callback with event in scope
+            eval $on_event_callback
+        }]
+    } else {
+        ;; Regular mode: capture full response body
+        curl::set_write_callback $c [lambda {chunk} {
+            set! response_body "$response_body$chunk"
+        }]
+    }
 
-    # Perform the request
-    curl::perform $c
+    ;; Perform the request
+    ;; Catch errors so we can distinguish timeouts from real failures
+    var perform_failed 0
+    if [catch {curl::perform $c} _result _err] {
+        set! perform_failed 1
+    }
 
-    # Gather response info
+    ;; Check error status using new curl functions
+    let is_timeout [curl::is_timeout $c]
+    let error_code [curl::get_last_error $c]
+    let error_string [curl::error_string $c]
+
+    ;; For SSE streams, timeouts are expected behavior
+    ;; For regular requests, non-timeout errors should propagate
+    if [and $perform_failed [not $is_timeout]] {
+        if [empty? $on_event_callback] {
+            ;; Regular request with a real error - throw it
+            error "curl request failed: $error_string"
+        }
+        ;; SSE with non-timeout error - we'll report it in the response
+    }
+
+    ;; Gather response info
     let status_code [curl::get_response_code $c]
     let content_type [curl::get_content_type $c]
     let effective_url [curl::get_effective_url $c]
     let total_time [curl::get_total_time $c]
 
-    # Build headers dict from content-type
+    ;; Build headers dict from content-type
     var headers [dict]
     if [not [empty? $content_type]] {
         set! headers [put $headers "content-type" [list $content_type]]
     }
 
-    # Try to parse body as JSON if content-type suggests it
+    ;; Try to parse body as JSON if content-type suggests it
     var parsed_json {}
     if [>= [String::find $content_type "application/json"] 0] {
         if [catch { json::decode $response_body } result _err] {
-            # JSON parse failed, leave parsed_json empty
+            ;; JSON parse failed, leave parsed_json empty
         } else {
             set! parsed_json $result
         }
     }
 
-    # Build response dict
-    let response [dict \
+    ;; Build response dict with error info
+    var response [dict \
         status_code $status_code \
         body $response_body \
         headers $headers \
         json $parsed_json \
         content_type $content_type \
         effective_url $effective_url \
-        total_time $total_time]
+        total_time $total_time \
+        error_code $error_code \
+        is_timeout $is_timeout]
+
+    ;; Add error string only if there was an error
+    if [!= $error_code 0] {
+        set! response [put $response error $error_string]
+    }
 
     return $response
 }
 
-# ============================================================================
-# DSL: Request Builder
-# ============================================================================
+;; ============================================================================
+;; DSL: Request Builder
+;; ============================================================================
 
-# Internal: build request from DSL block
+;; Internal: build request from DSL block
 proc Flux::_build_request {syntax_body} {
     var config [dict headers [list] options [dict]]
     var on_response_callback {}
+    var on_event_callback {}
 
-    # Define DSL commands that will be available in the block
+    ;; Define DSL commands that will be available in the block
     proc headers {hds} {
         let lines [String::split $hds "\n"]
         foreach line $lines {
@@ -275,24 +494,70 @@ proc Flux::_build_request {syntax_body} {
         set! on_response_callback $callback_body
     }
 
-    # Execute the syntax body to collect configuration
+    ;; SSE event callback
+    ;; The callback receives an 'event' variable which is a dict with keys:
+    ;;   data  - the event data (string)
+    ;;   event - the event type (string, defaults to "message")
+    ;;   id    - the event id (string, optional)
+    ;;   retry - the retry timeout in ms (string, optional)
+    proc on_event {callback_body} {
+        set! on_event_callback $callback_body
+    }
+
+    ;; HTTP Signature configuration block
+    ;; Usage: http_signature { key_id "mykey" algorithm "hmac-sha256" ... }
+    proc http_signature {sig_body} {
+        var sig_config [dict name "sig" covered_components [list]]
+
+        proc key_id {id} {
+            set! sig_config [put $sig_config key_id $id]
+        }
+
+        proc key_pem {pem} {
+            set! sig_config [put $sig_config key_pem $pem]
+        }
+
+        proc key_file {path} {
+            let pem [File::read $path]
+            set! sig_config [put $sig_config key_pem $pem]
+        }
+
+        proc algorithm {alg} {
+            set! sig_config [put $sig_config algorithm $alg]
+        }
+
+        proc name {n} {
+            set! sig_config [put $sig_config name $n]
+        }
+
+        proc cover {components} {
+            set! sig_config [put $sig_config covered_components $components]
+        }
+
+        eval $sig_body
+
+        set! config [put $config http_signature $sig_config]
+    }
+
+    ;; Execute the syntax body to collect configuration
     eval $syntax_body
 
-    return [dict config $config on_response $on_response_callback]
+    return [dict config $config on_response $on_response_callback on_event $on_event_callback]
 }
 
-# Create HTTP verb command
+;; Create HTTP verb command
 proc Flux::_make_request {verb url syntax_body} {
     let built [Flux::_build_request $syntax_body]
     let config [get $built config]
     let on_response_cb [get $built on_response]
+    let on_event_cb [get $built on_event]
 
-    # Execute the request immediately
-    let response [Flux::_execute_request $verb $url $config]
+    ;; Execute the request (SSE mode if on_event callback is provided)
+    let response [Flux::_execute_request $verb $url $config $on_event_cb]
 
-    # If there's an on_response callback, execute it with response variables in scope
+    ;; If there's an on_response callback, execute it with response variables in scope
     if [not [empty? $on_response_cb]] {
-        # Bind response variables for the callback
+        ;; Bind response variables for the callback
         let status_code [get $response status_code]
         let body [get $response body]
         let headers [get $response headers]
@@ -301,15 +566,23 @@ proc Flux::_make_request {verb url syntax_body} {
         let effective_url [get $response effective_url]
         let total_time [get $response total_time]
 
-        # Execute the callback - it has access to all the above via closure
+        ;; Error info (useful for SSE streams)
+        let is_timeout [get $response is_timeout]
+        let error_code [get $response error_code]
+        var error {}
+        if [has? $response error] {
+            set! error [get $response error]
+        }
+
+        ;; Execute the callback - it has access to all the above via closure
         eval $on_response_cb
     }
 
     return $response
 }
 
-# HTTP verb commands
-# Note: Using let + return pattern to work around LCL tail-call closure bug
+;; HTTP verb commands
+;; Note: Using let + return pattern to work around LCL tail-call closure bug
 proc GET {url syntax_body} {
     let result [Flux::_make_request "GET" $url $syntax_body]
     return $result
@@ -345,24 +618,24 @@ proc HEAD {url syntax_body} {
     return $result
 }
 
-# ============================================================================
-# Test Organization: Suite and Case
-# ============================================================================
+;; ============================================================================
+;; Test Organization: Suite and Case
+;; ============================================================================
 
 proc Flux::Suite {name suite_body} {
-    # Save current state
+    ;; Save current state
     let prev_cases $Flux::_current_cases
     set! Flux::_current_cases [list]
     set! Flux::_current_suite $name
 
-    # Execute suite body to collect cases
+    ;; Execute suite body to collect cases
     eval $suite_body
 
-    # Store the suite
+    ;; Store the suite
     let suite [dict name $name cases $Flux::_current_cases]
     set! Flux::_suites [List::push $Flux::_suites $suite]
 
-    # Restore state
+    ;; Restore state
     set! Flux::_current_cases $prev_cases
     set! Flux::_current_suite {}
 }
@@ -372,9 +645,9 @@ proc Flux::Case {name case_body} {
     set! Flux::_current_cases [List::push $Flux::_current_cases $case_def]
 }
 
-# ============================================================================
-# Test Execution
-# ============================================================================
+;; ============================================================================
+;; Test Execution
+;; ============================================================================
 
 proc Flux::run {} {
     set! Flux::_failed 0
@@ -401,9 +674,9 @@ proc Flux::run {} {
 
             set! total_cases [+ $total_cases 1]
 
-            # Try to run the case
+            ;; Try to run the case
             if [catch { eval $case_body } _result _err] {
-                # Test failed
+                ;; Test failed
                 set! failed_cases [+ $failed_cases 1]
                 set! Flux::_failed 1
                 puts "  FAIL: $case_name"
@@ -418,7 +691,7 @@ proc Flux::run {} {
                     break
                 }
             } else {
-                # Test passed
+                ;; Test passed
                 set! passed_cases [+ $passed_cases 1]
                 puts "  PASS: $case_name"
 
@@ -434,7 +707,7 @@ proc Flux::run {} {
         puts ""
     }
 
-    # Summary
+    ;; Summary
     puts "----------------------------------------"
     puts "Total: $total_cases, Passed: $passed_cases, Failed: $failed_cases"
 
@@ -449,13 +722,13 @@ proc Flux::run {} {
     return [dict total $total_cases passed $passed_cases failed $failed_cases]
 }
 
-# Configure Flux behavior
+;; Configure Flux behavior
 proc Flux::configure {option value} {
     set! Flux::_config [put $Flux::_config $option $value]
 }
 
-# For simpler scripts that don't use Suite/Case, just run directly
+;; For simpler scripts that don't use Suite/Case, just run directly
 proc Flux::run_simple {} {
-    # No-op, requests execute immediately
+    ;; No-op, requests execute immediately
     puts "Flux: All requests completed."
 }

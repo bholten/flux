@@ -17,6 +17,43 @@ namespace eval Flux {
 }
 
 ;; ============================================================================
+;; State Store (for sharing data between tests)
+;; ============================================================================
+;;
+;; Provides in-memory storage for passing values between test cases.
+;; Useful for API workflows where one test creates a resource and
+;; subsequent tests need its ID or auth tokens.
+;;
+;; Usage:
+;;   Flux::export "token" $auth_token     ;; store a value
+;;   let token [Flux::import "token"]     ;; retrieve a value
+;;   Flux::has_export "token"             ;; check if exists (returns 0/1)
+;;   Flux::clear_exports                  ;; clear all stored values
+
+namespace eval Flux::State {
+    var _store [dict]
+}
+
+proc Flux::export {name value} {
+    set! Flux::State::_store [put $Flux::State::_store $name $value]
+}
+
+proc Flux::import {name} {
+    if [has? $Flux::State::_store $name] {
+        return [get $Flux::State::_store $name]
+    }
+    error "Flux::import: no exported value for '$name'"
+}
+
+proc Flux::has_export {name} {
+    has? $Flux::State::_store $name
+}
+
+proc Flux::clear_exports {} {
+    set! Flux::State::_store [dict]
+}
+
+;; ============================================================================
 ;; Assertions
 ;; ============================================================================
 

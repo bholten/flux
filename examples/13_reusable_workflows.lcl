@@ -1,0 +1,141 @@
+;; Example 13: Reusable Workflows
+;;
+;; Demonstrates how to encapsulate complex API workflows into reusable procs.
+;; This pattern solves the problem of workflow knowledge being scattered
+;; across tests - when the auth flow changes, update workflows.lcl once.
+;;
+;; The test file stays clean and readable - it expresses WHAT it's testing,
+;; not HOW to set up the environment.
+;;
+;; Run with: ./build/flux examples/13_reusable_workflows.lcl
+
+;; Load our workflow library
+load examples/lib/workflows.lcl
+
+;; ============================================================================
+;; Tests are now clean and declarative
+;; ============================================================================
+
+Flux::Suite "Posts API" {
+
+    Flux::Case "can create and retrieve a post" {
+        ;; One line to create a post - no need to know the API details
+        let post [posts::create "My Test Post" "This is the body" 1]
+
+        puts "Created post ID: [get $post id]"
+
+        ;; Verify we got what we expected
+        Flux::eq [get $post title] "My Test Post"
+        Flux::eq [get $post userId] 1
+    }
+
+    Flux::Case "can fetch an existing post" {
+        let post [posts::get 1]
+
+        Flux::assert [has? $post "title"]
+        Flux::assert [has? $post "body"]
+
+        puts "Fetched post: [get $post title]"
+    }
+
+}
+
+Flux::Suite "Authenticated Endpoints" {
+
+    Flux::Case "login returns token and user info" {
+        let auth [auth::login "developer@example.com" "secret123"]
+
+        ;; Verify the auth result has what we need
+        Flux::assert [has? $auth token]
+        Flux::assert [has? $auth user_id]
+        Flux::assert [has? $auth email]
+
+        puts "Logged in as: [get $auth email]"
+        puts "Token: [String::range [get $auth token] 0 20]..."
+    }
+
+    Flux::Case "same user reuses cached token" {
+        ;; This should return the cached token from the previous test
+        let auth1 [auth::login "developer@example.com" "secret123"]
+        let auth2 [auth::login "developer@example.com" "secret123"]
+
+        ;; Same token (cached)
+        Flux::eq [get $auth1 token] [get $auth2 token]
+
+        puts "Token was cached and reused"
+    }
+
+    Flux::Case "different user gets different token" {
+        let auth1 [auth::login "developer@example.com" "secret123"]
+        let auth2 [auth::login "other@example.com" "password456"]
+
+        ;; Different tokens
+        Flux::ne [get $auth1 token] [get $auth2 token]
+
+        puts "Different users have different tokens"
+    }
+
+    Flux::Case "can make authenticated request" {
+        let auth [auth::login "tester@example.com" "testpass"]
+        let token [get $auth token]
+
+        GET https://httpbin.org/headers {
+            header "Authorization: Bearer $token"
+            header "X-User-Id: [get $auth user_id]"
+
+            on_response {
+                Flux::eq $status_code 200
+                Flux::contains $body "Bearer"
+                puts "Authenticated request successful"
+            }
+        }
+    }
+
+}
+
+Flux::Suite "Full Environment Setup" {
+
+    Flux::Case "setup::test_environment creates everything needed" {
+        ;; One call sets up auth + test data
+        let env [setup::test_environment "admin@example.com" "adminpass"]
+
+        ;; We get both auth and test data back
+        let auth [get $env auth]
+        let post [get $env post]
+
+        Flux::assert [has? $auth token]
+        Flux::assert [has? $post id]
+
+        puts "Environment ready:"
+        puts "  - Logged in as: [get $auth email]"
+        puts "  - Test post ID: [get $post id]"
+    }
+
+    Flux::Case "use environment for actual testing" {
+        ;; Get the same cached environment
+        let env [setup::test_environment "admin@example.com" "adminpass"]
+        let token [get [get $env auth] token]
+
+        ;; Now do actual API testing with the setup
+        GET https://httpbin.org/get {
+            header "Authorization: Bearer $token"
+
+            on_response {
+                Flux::eq $status_code 200
+                puts "Test completed with pre-configured environment"
+            }
+        }
+    }
+
+    Flux::Case "teardown clears all state" {
+        setup::teardown
+
+        ;; Verify state is cleared
+        Flux::assert [not [Flux::has_export "auth:admin@example.com"]]
+
+        puts "Environment torn down"
+    }
+
+}
+
+Flux::run

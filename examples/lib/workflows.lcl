@@ -1,0 +1,152 @@
+;; workflows.lcl - Reusable API Workflow Library
+;;
+;; This file encapsulates complex workflows so tests don't need to know
+;; the implementation details. When the auth flow changes, update here once.
+;;
+;; Usage: load examples/lib/workflows.lcl
+
+;; ============================================================================
+;; Authentication Workflows
+;; ============================================================================
+
+;; Generate an auth token for a user
+;; Returns: #{token "..." user_id "..." email "..."}
+proc auth::login {email password} {
+    ;; Check cache first - avoid redundant logins within a test run
+    let cache_key "auth:$email"
+    if [Flux::has_export $cache_key] {
+        return [Flux::import $cache_key]
+    }
+
+    var result [dict]
+    var login_ok 0
+
+    ;; Simulate login (using httpbin to echo back our request)
+    POST https://httpbin.org/post {
+        header "Content-Type: application/json"
+        body [subst {{"email": "$email", "password": "$password", "grant_type": "password"}}]
+
+        on_response {
+            if [== $status_code 200] {
+                set! login_ok 1
+                ;; In real API, token would come from response
+                ;; Here we simulate it
+                let fake_token "tok_[String::replace $email {@} {_}]_[Flux::_get_unix_time]"
+                set! result [dict \
+                    token $fake_token \
+                    user_id "user_12345" \
+                    email $email \
+                    expires_in 3600]
+            }
+        }
+    }
+
+    if [not $login_ok] {
+        error "auth::login failed for $email"
+    }
+
+    ;; Cache for subsequent calls
+    Flux::export $cache_key $result
+    return $result
+}
+
+;; Get auth headers dict for a logged-in user
+;; Convenience wrapper that returns just what you need for requests
+proc auth::headers {email password} {
+    let auth [auth::login $email $password]
+    return [dict Authorization "Bearer [get $auth token]"]
+}
+
+;; Logout / invalidate cached token
+proc auth::logout {email} {
+    let cache_key "auth:$email"
+    if [Flux::has_export $cache_key] {
+        ;; In real implementation, would call logout endpoint
+        ;; For now, just clear the cache
+        ;; Note: We can't delete individual keys, so we just export empty
+        Flux::export $cache_key {}
+    }
+}
+
+;; ============================================================================
+;; Resource Workflows
+;; ============================================================================
+
+;; Create a test post and return its details
+;; Returns: #{id "..." title "..." body "..." userId "..."}
+proc posts::create {title body_text user_id} {
+    var result [dict]
+    var created 0
+
+    POST https://jsonplaceholder.typicode.com/posts {
+        header "Content-Type: application/json"
+        body [subst {{"title": "$title", "body": "$body_text", "userId": $user_id}}]
+
+        on_response {
+            if [== $status_code 201] {
+                set! created 1
+                set! result [dict \
+                    id [get $json "id"] \
+                    title [get $json "title"] \
+                    body [get $json "body"] \
+                    userId [get $json "userId"]]
+            }
+        }
+    }
+
+    if [not $created] {
+        error "posts::create failed"
+    }
+
+    return $result
+}
+
+;; Get a post by ID
+;; Returns: #{id "..." title "..." body "..." userId "..."}
+proc posts::get {post_id} {
+    var result [dict]
+    var found 0
+
+    GET "https://jsonplaceholder.typicode.com/posts/$post_id" {
+        on_response {
+            if [== $status_code 200] {
+                set! found 1
+                set! result $json
+            }
+        }
+    }
+
+    if [not $found] {
+        error "posts::get failed for post $post_id"
+    }
+
+    return $result
+}
+
+;; ============================================================================
+;; Complex Multi-Step Workflows
+;; ============================================================================
+
+;; Set up a complete test environment:
+;; 1. Login as admin
+;; 2. Create a test post
+;; 3. Return everything needed for testing
+;;
+;; Returns: #{auth #{...} post #{...}}
+proc setup::test_environment {admin_email admin_password} {
+    ;; Step 1: Authenticate
+    let auth [auth::login $admin_email $admin_password]
+
+    ;; Step 2: Create test data
+    let post [posts::create "Test Post" "Created by automated test" 1]
+
+    ;; Return everything the test needs
+    return [dict \
+        auth $auth \
+        post $post]
+}
+
+;; Teardown - clear all cached state
+proc setup::teardown {} {
+    Flux::clear_exports
+}

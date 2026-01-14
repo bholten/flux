@@ -50,8 +50,7 @@ W9gEujkvlmDLlWaNG5+PdPCk
 -----END PRIVATE KEY-----}
 
 Flux::Suite "HTTP Signatures" {
-
-    Flux::Case "HMAC-SHA256 signed request" {
+    Case "HMAC-SHA256 signed request" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             body {{"message": "Hello, signed world!"}}
@@ -72,7 +71,7 @@ Flux::Suite "HTTP Signatures" {
         }
     }
 
-    Flux::Case "RSA-PSS-SHA256 signed request" {
+    Case "RSA-PSS-SHA256 signed request" {
         GET https://httpbin.org/get {
             http_signature {
                 key_id "rsa-test-key"
@@ -90,7 +89,7 @@ Flux::Suite "HTTP Signatures" {
         }
     }
 
-    Flux::Case "signature with custom headers" {
+    Case "signature with custom headers" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             header "X-Acme-Request-Id: req-abc-123"

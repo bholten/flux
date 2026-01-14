@@ -12,8 +12,7 @@
 ;; Run with: ./build/flux examples/08_assertions.lcl
 
 Flux::Suite "Assertions" {
-
-    Flux::Case "equality assertions" {
+    Case "equality assertions" {
         GET https://httpbin.org/status/201 {
             on_response {
                 ;; Assert exact equality
@@ -25,7 +24,7 @@ Flux::Suite "Assertions" {
         }
     }
 
-    Flux::Case "string contains" {
+    Case "string contains" {
         GET https://httpbin.org/html {
             on_response {
                 Flux::eq $status_code 200
@@ -35,7 +34,7 @@ Flux::Suite "Assertions" {
         }
     }
 
-    Flux::Case "custom assertions" {
+    Case "custom assertions" {
         GET https://httpbin.org/get {
             on_response {
                 ;; Assert with condition
@@ -45,7 +44,7 @@ Flux::Suite "Assertions" {
         }
     }
 
-    Flux::Case "header assertions" {
+    Case "header assertions" {
         GET https://httpbin.org/response-headers?X-Test=hello {
             on_response {
                 Flux::eq $status_code 200

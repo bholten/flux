@@ -18,6 +18,8 @@ set(LCL_BUILD_CURL ON CACHE BOOL "Build LCL CURL extension for Flux" FORCE)
 set(LCL_BUILD_IO ON CACHE BOOL "Build LCL IO extension for Flux" FORCE)
 set(LCL_BUILD_JSON ON CACHE BOOL "Build LCL JSON extension for Flux" FORCE)
 set(LCL_BUILD_CRYPTO ON CACHE BOOL "Build LCL Crypto extension for Flux" FORCE)
+set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
+set(LCL_BUILD_REGEX ON CACHE BOOL "Build Lcl regex extension" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
 

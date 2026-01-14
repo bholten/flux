@@ -11,8 +11,7 @@
 ;; Run with: ./build/flux examples/07_request_options.lcl
 
 Flux::Suite "Request Options" {
-
-    Flux::Case "set timeout" {
+    Case "set timeout" {
         GET https://httpbin.org/get {
             timeout_ms 5000
 
@@ -22,7 +21,7 @@ Flux::Suite "Request Options" {
         }
     }
 
-    Flux::Case "follow redirects" {
+    Case "follow redirects" {
         GET https://httpbin.org/redirect/1 {
             follow_redirects 1
 
@@ -33,7 +32,7 @@ Flux::Suite "Request Options" {
         }
     }
 
-    Flux::Case "custom user agent" {
+    Case "custom user agent" {
         GET https://httpbin.org/user-agent {
             user_agent "MyCustomAgent/2.0"
 
@@ -44,7 +43,7 @@ Flux::Suite "Request Options" {
         }
     }
 
-    Flux::Case "verbose output for debugging" {
+    Case "verbose output for debugging" {
         GET https://httpbin.org/get {
             ;; Set verbose to 1 to see detailed curl output
             verbose 1

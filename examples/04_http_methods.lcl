@@ -5,34 +5,33 @@
 ;; Run with: ./build/flux examples/04_http_methods.lcl
 
 Flux::Suite "HTTP Methods" {
-
-    Flux::Case "PUT request" {
+    Case "PUT request" {
         PUT https://httpbin.org/put {
             header "Content-Type: application/json"
             body {{"id": 1, "name": "Updated Item"}}
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "Updated Item"
+                Flux::assert_eq $status_code 200
+                Flux::contains? $body "Updated Item"
             }
         }
     }
 
-    Flux::Case "PATCH request" {
+    Case "PATCH request" {
         PATCH https://httpbin.org/patch {
             header "Content-Type: application/json"
             body {{"name": "Patched"}}
 
             on_response {
-                Flux::eq $status_code 200
+                Flux::assert_eq $status_code 200
             }
         }
     }
 
-    Flux::Case "DELETE request" {
+    Case "DELETE request" {
         DELETE https://httpbin.org/delete {
             on_response {
-                Flux::eq $status_code 200
+                Flux::assert_eq $status_code 200
             }
         }
     }

@@ -6,32 +6,31 @@
 ;; Run with: ./build/flux examples/03_post_json.lcl
 
 Flux::Suite "POST with JSON" {
-
-    Flux::Case "send JSON and verify echo" {
+    Case "send JSON and verify echo" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
 
             body {{"username": "testuser", "email": "test@example.com"}}
 
             on_response {
-                Flux::eq $status_code 200
+                Flux::assert_eq $status_code 200
 
                 ;; httpbin echoes back our posted data
-                Flux::contains $body "testuser"
-                Flux::contains $body "test@example.com"
+                Flux::contains? $body "testuser"
+                Flux::contains? $body "test@example.com"
             }
         }
     }
 
-    Flux::Case "POST form data" {
+    Case "POST form data" {
         POST https://httpbin.org/post {
             header "Content-Type: application/x-www-form-urlencoded"
 
             body "name=John&age=30"
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "John"
+                Flux::assert_eq $status_code 200
+                Flux::contains? $body "John"
             }
         }
     }

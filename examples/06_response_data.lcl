@@ -12,46 +12,45 @@
 ;; Run with: ./build/flux examples/06_response_data.lcl
 
 Flux::Suite "Response Data Variables" {
-
-    Flux::Case "access status code" {
+    Case "access status code" {
         GET https://httpbin.org/status/201 {
             on_response {
-                Flux::eq $status_code 201
+                Flux::assert_eq $status_code 201
             }
         }
     }
 
-    Flux::Case "access body" {
+    Case "access body" {
         GET https://httpbin.org/html {
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "<html>"
+                Flux::assert_eq $status_code 200
+                Flux::contains? $body "<html>"
             }
         }
     }
 
-    Flux::Case "access parsed JSON" {
+    Case "access parsed JSON" {
         GET https://httpbin.org/get {
             on_response {
-                Flux::eq $status_code 200
+                Flux::assert_eq $status_code 200
                 let url [get $json "url"]
-                Flux::eq $url "https://httpbin.org/get"
+                Flux::assert_eq $url "https://httpbin.org/get"
             }
         }
     }
 
-    Flux::Case "access content type" {
+    Case "access content type" {
         GET https://httpbin.org/get {
             on_response {
-                Flux::contains $content_type "application/json"
+                Flux::contains? $content_type "application/json"
             }
         }
     }
 
-    Flux::Case "access timing info" {
+    Case "access timing info" {
         GET https://httpbin.org/get {
             on_response {
-                Flux::eq $status_code 200
+                Flux::assert_eq $status_code 200
                 puts "Request completed in $total_time seconds"
             }
         }

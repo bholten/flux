@@ -17,8 +17,7 @@ load examples/lib/workflows.lcl
 ;; ============================================================================
 
 Flux::Suite "Posts API" {
-
-    Flux::Case "can create and retrieve a post" {
+    Case "can create and retrieve a post" {
         ;; One line to create a post - no need to know the API details
         let post [posts::create "My Test Post" "This is the body" 1]
 
@@ -29,7 +28,7 @@ Flux::Suite "Posts API" {
         Flux::eq [get $post userId] 1
     }
 
-    Flux::Case "can fetch an existing post" {
+    Case "can fetch an existing post" {
         let post [posts::get 1]
 
         Flux::assert [has? $post "title"]
@@ -41,8 +40,7 @@ Flux::Suite "Posts API" {
 }
 
 Flux::Suite "Authenticated Endpoints" {
-
-    Flux::Case "login returns token and user info" {
+    Case "login returns token and user info" {
         let auth [auth::login "developer@example.com" "secret123"]
 
         ;; Verify the auth result has what we need
@@ -54,7 +52,7 @@ Flux::Suite "Authenticated Endpoints" {
         puts "Token: [String::range [get $auth token] 0 20]..."
     }
 
-    Flux::Case "same user reuses cached token" {
+    Case "same user reuses cached token" {
         ;; This should return the cached token from the previous test
         let auth1 [auth::login "developer@example.com" "secret123"]
         let auth2 [auth::login "developer@example.com" "secret123"]
@@ -65,7 +63,7 @@ Flux::Suite "Authenticated Endpoints" {
         puts "Token was cached and reused"
     }
 
-    Flux::Case "different user gets different token" {
+    Case "different user gets different token" {
         let auth1 [auth::login "developer@example.com" "secret123"]
         let auth2 [auth::login "other@example.com" "password456"]
 
@@ -75,7 +73,7 @@ Flux::Suite "Authenticated Endpoints" {
         puts "Different users have different tokens"
     }
 
-    Flux::Case "can make authenticated request" {
+    Case "can make authenticated request" {
         let auth [auth::login "tester@example.com" "testpass"]
         let token [get $auth token]
 
@@ -94,8 +92,7 @@ Flux::Suite "Authenticated Endpoints" {
 }
 
 Flux::Suite "Full Environment Setup" {
-
-    Flux::Case "setup::test_environment creates everything needed" {
+    Case "setup::test_environment creates everything needed" {
         ;; One call sets up auth + test data
         let env [setup::test_environment "admin@example.com" "adminpass"]
 
@@ -111,7 +108,7 @@ Flux::Suite "Full Environment Setup" {
         puts "  - Test post ID: [get $post id]"
     }
 
-    Flux::Case "use environment for actual testing" {
+    Case "use environment for actual testing" {
         ;; Get the same cached environment
         let env [setup::test_environment "admin@example.com" "adminpass"]
         let token [get [get $env auth] token]
@@ -127,7 +124,7 @@ Flux::Suite "Full Environment Setup" {
         }
     }
 
-    Flux::Case "teardown clears all state" {
+    Case "teardown clears all state" {
         setup::teardown
 
         ;; Verify state is cleared

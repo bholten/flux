@@ -6,8 +6,7 @@
 ;; Run with: ./build/flux examples/09_api_workflow.lcl
 
 Flux::Suite "API Workflow - CRUD Operations" {
-
-    Flux::Case "POST creates resource" {
+    Case "POST creates resource" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             header "Authorization: Bearer test-token"
@@ -22,7 +21,7 @@ Flux::Suite "API Workflow - CRUD Operations" {
         }
     }
 
-    Flux::Case "GET retrieves resource" {
+    Case "GET retrieves resource" {
         GET https://httpbin.org/get {
             on_response {
                 Flux::eq $status_code 200
@@ -33,8 +32,7 @@ Flux::Suite "API Workflow - CRUD Operations" {
 }
 
 Flux::Suite "API Workflow - Error Handling" {
-
-    Flux::Case "handle 404 not found" {
+    Case "handle 404 not found" {
         GET https://httpbin.org/status/404 {
             on_response {
                 Flux::eq $status_code 404
@@ -42,7 +40,7 @@ Flux::Suite "API Workflow - Error Handling" {
         }
     }
 
-    Flux::Case "handle 500 server error" {
+    Case "handle 500 server error" {
         GET https://httpbin.org/status/500 {
             on_response {
                 Flux::eq $status_code 500
@@ -50,7 +48,7 @@ Flux::Suite "API Workflow - Error Handling" {
         }
     }
 
-    Flux::Case "verify delay endpoint" {
+    Case "verify delay endpoint" {
         GET https://httpbin.org/delay/1 {
             timeout_ms 5000
 

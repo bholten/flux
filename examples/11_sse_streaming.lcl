@@ -21,8 +21,7 @@ var event_count 0
 var events_received []
 
 Flux::Suite "SSE Streaming" {
-
-    Flux::Case "should receive SSE events from stream" {
+    Case "should receive SSE events from stream" {
         GET https://sse.dev/test {
             ;; SSE streams run until timeout or connection close
             timeout_ms 5000

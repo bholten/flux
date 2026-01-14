@@ -12,8 +12,7 @@
 ;; Run with: ./build/flux examples/12_state_export.lcl
 
 Flux::Suite "API Workflow with State" {
-
-    Flux::Case "create a post and export its ID" {
+    Case "create a post and export its ID" {
         POST https://jsonplaceholder.typicode.com/posts {
             header "Content-Type: application/json"
             body {{"title": "Test Post", "body": "Created by Flux", "userId": 1}}
@@ -31,7 +30,7 @@ Flux::Suite "API Workflow with State" {
         }
     }
 
-    Flux::Case "verify exported data exists" {
+    Case "verify exported data exists" {
         ;; We can check if exports exist before using them
         Flux::assert [Flux::has_export "post_id"]
         Flux::assert [Flux::has_export "post_title"]
@@ -49,7 +48,7 @@ Flux::Suite "API Workflow with State" {
         }
     }
 
-    Flux::Case "use exported ID to fetch the post" {
+    Case "use exported ID to fetch the post" {
         ;; Import the post ID from the first test
         let post_id [Flux::import "post_id"]
 
@@ -66,8 +65,7 @@ Flux::Suite "API Workflow with State" {
 }
 
 Flux::Suite "Auth Token Workflow" {
-
-    Flux::Case "simulate login and export token" {
+    Case "simulate login and export token" {
         ;; In a real scenario, this would be a login endpoint
         ;; Here we simulate by creating a fake token
         POST https://httpbin.org/post {
@@ -87,7 +85,7 @@ Flux::Suite "Auth Token Workflow" {
         }
     }
 
-    Flux::Case "make authenticated request using exported token" {
+    Case "make authenticated request using exported token" {
         let token [Flux::import "auth_token"]
         let user_id [Flux::import "user_id"]
 
@@ -110,8 +108,7 @@ Flux::Suite "Auth Token Workflow" {
 }
 
 Flux::Suite "Clear State Demo" {
-
-    Flux::Case "exports persist across suites" {
+    Case "exports persist across suites" {
         ;; The auth_token from the previous suite should still be available
         Flux::assert [Flux::has_export "auth_token"]
         puts "State persists across suites: token exists"
@@ -121,7 +118,7 @@ Flux::Suite "Clear State Demo" {
         }
     }
 
-    Flux::Case "clear exports when done" {
+    Case "clear exports when done" {
         Flux::clear_exports
 
         ;; Now the exports should be gone

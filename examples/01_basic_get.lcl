@@ -6,11 +6,10 @@
 ;; Run with: ./build/flux examples/01_basic_get.lcl
 
 Flux::Suite "Basic GET Request" {
-
-    Flux::Case "should return 200 OK" {
+    Case "should return 200 OK" {
         GET https://httpbin.org/get {
             on_response {
-                Flux::eq $status_code 200
+                assert [== $status_code 200]
             }
         }
     }

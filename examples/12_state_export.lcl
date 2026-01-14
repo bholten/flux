@@ -18,7 +18,7 @@ Flux::Suite "API Workflow with State" {
             body {{"title": "Test Post", "body": "Created by Flux", "userId": 1}}
 
             on_response {
-                Flux::eq $status_code 201
+                assert_eq $status_code 201
 
                 ;; Export the created post's ID for use in later tests
                 let post_id [get $json "id"]
@@ -32,8 +32,8 @@ Flux::Suite "API Workflow with State" {
 
     Case "verify exported data exists" {
         ;; We can check if exports exist before using them
-        Flux::assert [Flux::has_export "post_id"]
-        Flux::assert [Flux::has_export "post_title"]
+        assert [has_export? "post_id"]
+        assert [has_export? "post_title"]
 
         let id [Flux::import "post_id"]
         let title [Flux::import "post_title"]
@@ -43,7 +43,7 @@ Flux::Suite "API Workflow with State" {
         ;; Dummy request just to have a test case with a request
         GET https://jsonplaceholder.typicode.com/posts/1 {
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
             }
         }
     }
@@ -56,7 +56,7 @@ Flux::Suite "API Workflow with State" {
         ;; so we fetch post 1 instead to demonstrate the pattern
         GET https://jsonplaceholder.typicode.com/posts/1 {
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
                 puts "Fetched post using exported ID pattern (actual ID: $post_id)"
             }
         }
@@ -73,7 +73,7 @@ Flux::Suite "Auth Token Workflow" {
             body {{"username": "testuser", "password": "secret"}}
 
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
 
                 ;; Simulate receiving a token (httpbin echoes back our request)
                 let fake_token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test"
@@ -90,15 +90,16 @@ Flux::Suite "Auth Token Workflow" {
         let user_id [Flux::import "user_id"]
 
         GET https://httpbin.org/headers {
-            header "Authorization: Bearer $token"
-            header "X-User-Id: $user_id"
+            ;; Use headers (plural) with quoted string for variable interpolation
+            headers "Authorization: Bearer $token
+X-User-Id: $user_id"
 
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
 
                 ;; Verify our headers were sent
-                Flux::contains $body "Bearer"
-                Flux::contains $body $user_id
+                contains? $body "Bearer"
+                contains? $body $user_id
 
                 puts "Authenticated request successful"
             }
@@ -110,25 +111,25 @@ Flux::Suite "Auth Token Workflow" {
 Flux::Suite "Clear State Demo" {
     Case "exports persist across suites" {
         ;; The auth_token from the previous suite should still be available
-        Flux::assert [Flux::has_export "auth_token"]
+        assert [has_export? "auth_token"]
         puts "State persists across suites: token exists"
 
         GET https://httpbin.org/get {
-            on_response { Flux::eq $status_code 200 }
+            on_response { assert_eq $status_code 200 }
         }
     }
 
     Case "clear exports when done" {
-        Flux::clear_exports
+        Flux::clear_exports!
 
         ;; Now the exports should be gone
-        Flux::assert [not [Flux::has_export "auth_token"]]
-        Flux::assert [not [Flux::has_export "post_id"]]
+        assert [not [has_export? "auth_token"]]
+        assert [not [has_export? "post_id"]]
 
         puts "State cleared successfully"
 
         GET https://httpbin.org/get {
-            on_response { Flux::eq $status_code 200 }
+            on_response { assert_eq $status_code 200 }
         }
     }
 

@@ -1,9 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "interpreter.h"
 
+static void print_usage(const char *prog) {
+  fprintf(stderr, "Usage: %s [OPTIONS] <file.lcl>\n", prog);
+  fprintf(stderr, "\nOptions:\n");
+  fprintf(stderr, "  --junit     Output results in JUnit XML format\n");
+  fprintf(stderr, "  --help      Show this help message\n");
+}
+
 int main(int argc, const char **argv) {
+  const char *file = NULL;
+  int output_junit = 0;
+  int i;
+
+  for (i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--junit") == 0) {
+      output_junit = 1;
+    } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+      print_usage(argv[0]);
+      return EXIT_SUCCESS;
+    } else if (argv[i][0] == '-') {
+      fprintf(stderr, "[flux] Unknown option: %s\n", argv[i]);
+      print_usage(argv[0]);
+      return EXIT_FAILURE;
+    } else {
+      file = argv[i];
+      break;
+    }
+  }
+
+  if (!file) {
+    fprintf(stderr, "[flux] Need a file\n");
+    print_usage(argv[0]);
+    return EXIT_FAILURE;
+  }
+
   interpreter *interp = interpreter_new();
 
   if (!interp) {
@@ -11,18 +45,14 @@ int main(int argc, const char **argv) {
     return EXIT_FAILURE;
   }
 
-  if (argc < 2) {
-    fprintf(stderr, "[flux] Need a file\n");
-    interpreter_delete(interp);
-    return EXIT_FAILURE;
-  }
+  int remaining_argc = argc - i - 1;
+  const char **remaining_argv = argv + i + 1;
 
-  const char *file = argv[1];
-
-  if (argc > 2) {
-    if (interpreter_setup_environment(interp, argc - 2, argv + 2) !=
+  if (remaining_argc > 0) {
+    if (interpreter_setup_environment(interp, remaining_argc, remaining_argv) !=
         INTERP_OK) {
       fprintf(stderr, "[flux] error setting global variables\n");
+      interpreter_delete(interp);
       return EXIT_FAILURE;
     }
   }
@@ -30,12 +60,26 @@ int main(int argc, const char **argv) {
   if (interpreter_eval_file(interp, file) != INTERP_OK) {
     fprintf(stderr, "[flux] error evaluating %s\n", file);
     interpreter_print_error(interp);
+    interpreter_delete(interp);
     return EXIT_FAILURE;
   }
 
-  if (interpreter_execute(interp) != INTERP_OK) {
-    fprintf(stderr, "[flux] error executing run %s\n", file);
-    interpreter_print_error(interp);
+  if (output_junit) {
+    if (interpreter_eval(interp,
+                         "Flux::configure \"output_format\" \"junit\"") !=
+        INTERP_OK) {
+      fprintf(stderr, "[flux] error setting output format\n");
+      interpreter_print_error(interp);
+      interpreter_delete(interp);
+      return EXIT_FAILURE;
+    }
+  }
+
+  interp_result result = interpreter_execute(interp);
+
+  interpreter_delete(interp);
+
+  if (result != INTERP_OK) {
     return EXIT_FAILURE;
   }
 

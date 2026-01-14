@@ -37,9 +37,9 @@ Flux::Suite "SSE Streaming" {
                 ;; Called after stream ends (timeout or server close)
                 puts "Stream ended after $event_count events"
                 ;; SSE streams typically return 200
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
                 ;; We should have received at least one event
-                Flux::assert [> $event_count 0]
+                assert [> $event_count 0]
             }
         }
     }

@@ -3,7 +3,8 @@
 
 namespace Flux {
     ;; Configuration (extensible for future options)
-    var _config #{stop_on_failure 1}
+    ;; output_format: "human" (default), "junit", "tap" (future)
+    var _config #{stop_on_failure 1 output_format "human"}
 
     ;; Test collection state
     var _suites ()
@@ -55,6 +56,17 @@ namespace Flux {
     ;; Assertions
     ;; ============================================================================
 
+    proc assert {condition} {
+        if [not $condition] {
+            error "Assertion failed"
+        }
+    }
+
+    proc assert_msg {condition msg} {
+        if [not $condition] {
+            error $msg
+        }
+    }
 
     proc assert_eq {actual expected} {
         if [!= $actual $expected] {
@@ -629,10 +641,10 @@ namespace Flux {
             ;; Error info (useful for SSE streams)
             let is_timeout [get $response is_timeout]
             let error_code [get $response error_code]
-            var error {}
+            var response_error {}
 
             if [has? $response error] {
-                set! error [get $response error]
+                set! response_error [get $response error]
             }
 
             ;; Execute the callback - it has access to all the above via closure
@@ -709,77 +721,258 @@ namespace Flux {
     ;; Test Execution
     ;; ============================================================================
 
-    proc run {} {
-        set! _failed 0
-        set! _results ()
+    ;; ============================================================================
+    ;; Output Formatting Utilities
+    ;; ============================================================================
 
-        let stop_on_failure [get $_config stop_on_failure]
-        var total_cases 0
-        var passed_cases 0
-        var failed_cases 0
+    ;; Format microseconds as human-readable time
+    proc _format_time_us {us} {
+        if [< $us 1000] {
+            return "${us}µs"
+        }
+        if [< $us 1000000] {
+            let ms [int [/ $us 1000]]
+            return "${ms}ms"
+        }
+        let ms [int [/ $us 1000]]
+        let secs_dec [int [/ $ms 1000]]
+        let secs_frac [int [% $ms 1000]]
+        return "${secs_dec}.${secs_frac}s"
+    }
+
+    ;; Format microseconds as seconds (for JUnit XML)
+    proc _format_time_seconds {us} {
+        let ms [int [/ $us 1000]]
+        let secs [int [/ $ms 1000]]
+        let frac [int [% $ms 1000]]
+        ;; Pad fraction to 3 digits
+        if [< $frac 10] {
+            return "${secs}.00${frac}"
+        }
+        if [< $frac 100] {
+            return "${secs}.0${frac}"
+        }
+        return "${secs}.${frac}"
+    }
+
+    ;; Escape XML special characters
+    proc _xml_escape {str} {
+        var result $str
+        set! result [String::replace $result "&" "&amp;"]
+        set! result [String::replace $result "<" "&lt;"]
+        set! result [String::replace $result ">" "&gt;"]
+        set! result [String::replace $result "\"" "&quot;"]
+        set! result [String::replace $result "'" "&apos;"]
+        return $result
+    }
+
+    ;; ============================================================================
+    ;; Output Emitters
+    ;; ============================================================================
+
+    ;; Human-readable output emitter
+    ;; results: #{suites (...) total N passed N failed N time_us N}
+    proc _emit_human {results} {
+        let suites [get $results suites]
+        let total [get $results total]
+        let passed [get $results passed]
+        let failed [get $results failed]
+        let time_us [get $results time_us]
 
         puts ""
         puts "Running Flux test suites..."
         puts ""
 
-        foreach suite $_suites {
+        foreach suite $suites {
             let suite_name [get $suite name]
             let cases [get $suite cases]
+            let suite_time [get $suite time_us]
 
             puts "Suite: $suite_name"
 
-            foreach case_def $cases {
-                let case_name [get $case_def name]
-                let case_body [get $case_def body]
+            foreach case_result $cases {
+                let case_name [get $case_result name]
+                let status [get $case_result status]
+                let case_time [get $case_result time_us]
+                let time_str [Flux::_format_time_us $case_time]
 
-                set! total_cases [+ $total_cases 1]
-
-                ;; Try to run the case
-                if [catch { namespace Flux { eval $case_body } } _result _err] {
-                    ;; Test failed
-                    set! failed_cases [+ $failed_cases 1]
-                    set! _failed 1
-                    puts "  FAIL: $case_name"
-                    puts "        $_err"
-
-                    let result [dict status "failed" name $case_name error $_err]
-                    set! _results [List::push $_results $result]
-
-                    if $stop_on_failure {
-                        puts ""
-                        puts "Stopping on first failure."
-                        break
-                    }
+                if [== $status "passed"] {
+                    puts "  PASS: $case_name ($time_str)"
                 } else {
-                    ;; Test passed
-                    set! passed_cases [+ $passed_cases 1]
-                    puts "  PASS: $case_name"
-
-                    let result [dict status "passed" name $case_name]
-                    set! _results [List::push $_results $result]
+                    let err [get $case_result error]
+                    puts "  FAIL: $case_name ($time_str)"
+                    puts "        $err"
                 }
             }
 
-            if [and $stop_on_failure $_failed] {
-                break
-            }
-
+            let suite_time_str [Flux::_format_time_us $suite_time]
+            puts "  Suite time: $suite_time_str"
             puts ""
         }
 
-        ;; Summary
-        puts "----------------------------------------"
-        puts "Total: $total_cases, Passed: $passed_cases, Failed: $failed_cases"
+        let total_time_str [Flux::_format_time_us $time_us]
 
-        if $_failed {
+        puts "----------------------------------------"
+        puts "Total: $total, Passed: $passed, Failed: $failed"
+        puts "Total time: $total_time_str"
+
+        if [> $failed 0] {
             puts ""
             puts "Some tests failed."
         } else {
             puts ""
             puts "All tests passed!"
         }
+    }
 
-        return #{total $total_cases passed $passed_cases failed $failed_cases}
+    ;; JUnit XML output emitter
+    ;; results: #{suites (...) total N passed N failed N time_us N}
+    proc _emit_junit {results} {
+        let suites [get $results suites]
+        let total [get $results total]
+        let failed [get $results failed]
+        let time_us [get $results time_us]
+        let time_secs [Flux::_format_time_seconds $time_us]
+
+        puts {<?xml version="1.0" encoding="UTF-8"?>}
+        puts "<testsuites tests=\"$total\" failures=\"$failed\" time=\"$time_secs\">"
+
+        foreach suite $suites {
+            let suite_name [Flux::_xml_escape [get $suite name]]
+            let cases [get $suite cases]
+            let suite_time [get $suite time_us]
+            let suite_time_secs [Flux::_format_time_seconds $suite_time]
+
+            ;; Count suite stats
+            var suite_tests 0
+            var suite_failures 0
+            foreach c $cases {
+                set! suite_tests [+ $suite_tests 1]
+                if [== [get $c status] "failed"] {
+                    set! suite_failures [+ $suite_failures 1]
+                }
+            }
+
+            puts "  <testsuite name=\"$suite_name\" tests=\"$suite_tests\" failures=\"$suite_failures\" time=\"$suite_time_secs\">"
+
+            foreach case_result $cases {
+                let case_name [Flux::_xml_escape [get $case_result name]]
+                let status [get $case_result status]
+                let case_time [get $case_result time_us]
+                let case_time_secs [Flux::_format_time_seconds $case_time]
+
+                if [== $status "passed"] {
+                    puts "    <testcase name=\"$case_name\" time=\"$case_time_secs\"/>"
+                } else {
+                    let err [Flux::_xml_escape [get $case_result error]]
+                    puts "    <testcase name=\"$case_name\" time=\"$case_time_secs\">"
+                    puts "      <failure message=\"$err\"/>"
+                    puts "    </testcase>"
+                }
+            }
+
+            puts "  </testsuite>"
+        }
+
+        puts "</testsuites>"
+    }
+
+    ;; ============================================================================
+    ;; Test Execution
+    ;; ============================================================================
+
+    proc run {} {
+        set! _failed 0
+        set! _results ()
+
+        let stop_on_failure [get $_config stop_on_failure]
+        let output_format [get $_config output_format]
+
+        var total_cases 0
+        var passed_cases 0
+        var failed_cases 0
+        var suite_results ()
+
+        ;; Timing metrics
+        let run_start [time::clock]
+
+        foreach suite $_suites {
+            let suite_name [get $suite name]
+            let cases [get $suite cases]
+            let suite_start [time::clock]
+            var case_results ()
+            var should_break 0
+
+            foreach case_def $cases {
+                let case_name [get $case_def name]
+                let case_body [get $case_def body]
+                let case_start [time::clock]
+
+                set! total_cases [+ $total_cases 1]
+
+                ;; Try to run the case
+                if [catch { namespace Flux { eval $case_body } } _result _err] {
+                    ;; Test failed
+                    let case_end [time::clock]
+                    let case_time [- $case_end $case_start]
+
+                    set! failed_cases [+ $failed_cases 1]
+                    set! _failed 1
+
+                    let result #{status "failed" name $case_name error $_err time_us $case_time}
+                    set! case_results [List::push $case_results $result]
+                    set! _results [List::push $_results $result]
+
+                    if $stop_on_failure {
+                        set! should_break 1
+                        break
+                    }
+                } else {
+                    ;; Test passed
+                    let case_end [time::clock]
+                    let case_time [- $case_end $case_start]
+
+                    set! passed_cases [+ $passed_cases 1]
+
+                    let result #{status "passed" name $case_name time_us $case_time}
+                    set! case_results [List::push $case_results $result]
+                    set! _results [List::push $_results $result]
+                }
+            }
+
+            ;; Suite timing
+            let suite_end [time::clock]
+            let suite_time [- $suite_end $suite_start]
+
+            let suite_result #{name $suite_name cases $case_results time_us $suite_time}
+            set! suite_results [List::push $suite_results $suite_result]
+
+            if [and $stop_on_failure $_failed] {
+                break
+            }
+        }
+
+        ;; Overall timing
+        let run_end [time::clock]
+        let total_time [- $run_end $run_start]
+
+        ;; Build final results structure
+        let results #{
+            suites $suite_results
+            total $total_cases
+            passed $passed_cases
+            failed $failed_cases
+            time_us $total_time
+        }
+
+        ;; Emit output based on format
+        if [== $output_format "junit"] {
+            Flux::_emit_junit $results
+        } else {
+            Flux::_emit_human $results
+        }
+
+        return $results
     }
 
     ;; Configure Flux behavior

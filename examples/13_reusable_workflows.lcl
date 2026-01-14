@@ -24,15 +24,15 @@ Flux::Suite "Posts API" {
         puts "Created post ID: [get $post id]"
 
         ;; Verify we got what we expected
-        Flux::eq [get $post title] "My Test Post"
-        Flux::eq [get $post userId] 1
+        assert_eq [get $post title] "My Test Post"
+        assert_eq [get $post userId] 1
     }
 
     Case "can fetch an existing post" {
         let post [posts::get 1]
 
-        Flux::assert [has? $post "title"]
-        Flux::assert [has? $post "body"]
+        assert [has? $post "title"]
+        assert [has? $post "body"]
 
         puts "Fetched post: [get $post title]"
     }
@@ -44,9 +44,9 @@ Flux::Suite "Authenticated Endpoints" {
         let auth [auth::login "developer@example.com" "secret123"]
 
         ;; Verify the auth result has what we need
-        Flux::assert [has? $auth token]
-        Flux::assert [has? $auth user_id]
-        Flux::assert [has? $auth email]
+        assert [has? $auth token]
+        assert [has? $auth user_id]
+        assert [has? $auth email]
 
         puts "Logged in as: [get $auth email]"
         puts "Token: [String::range [get $auth token] 0 20]..."
@@ -58,7 +58,7 @@ Flux::Suite "Authenticated Endpoints" {
         let auth2 [auth::login "developer@example.com" "secret123"]
 
         ;; Same token (cached)
-        Flux::eq [get $auth1 token] [get $auth2 token]
+        assert_eq [get $auth1 token] [get $auth2 token]
 
         puts "Token was cached and reused"
     }
@@ -68,7 +68,7 @@ Flux::Suite "Authenticated Endpoints" {
         let auth2 [auth::login "other@example.com" "password456"]
 
         ;; Different tokens
-        Flux::ne [get $auth1 token] [get $auth2 token]
+        assert_neq [get $auth1 token] [get $auth2 token]
 
         puts "Different users have different tokens"
     }
@@ -82,8 +82,8 @@ Flux::Suite "Authenticated Endpoints" {
             header "X-User-Id: [get $auth user_id]"
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "Bearer"
+                assert_eq $status_code 200
+                contains? $body "Bearer"
                 puts "Authenticated request successful"
             }
         }
@@ -100,8 +100,8 @@ Flux::Suite "Full Environment Setup" {
         let auth [get $env auth]
         let post [get $env post]
 
-        Flux::assert [has? $auth token]
-        Flux::assert [has? $post id]
+        assert [has? $auth token]
+        assert [has? $post id]
 
         puts "Environment ready:"
         puts "  - Logged in as: [get $auth email]"
@@ -118,7 +118,7 @@ Flux::Suite "Full Environment Setup" {
             header "Authorization: Bearer $token"
 
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
                 puts "Test completed with pre-configured environment"
             }
         }
@@ -128,7 +128,7 @@ Flux::Suite "Full Environment Setup" {
         setup::teardown
 
         ;; Verify state is cleared
-        Flux::assert [not [Flux::has_export "auth:admin@example.com"]]
+        assert [not [has_export? "auth:admin@example.com"]]
 
         puts "Environment torn down"
     }

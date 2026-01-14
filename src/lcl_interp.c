@@ -8,6 +8,7 @@
 #include <lcl-curl.h>
 #include <lcl-io.h>
 #include <lcl-json.h>
+#include <lcl-time.h>
 // clang-format on
 
 #include "generated/flux_dsl.h"
@@ -48,6 +49,7 @@ interpreter *interpreter_new(void) {
   lcl_register_json(lcl);
   lcl_register_curl(lcl);
   lcl_register_crypto(lcl);
+  lcl_register_time(lcl);
 
   lcl_value *result = NULL;
 

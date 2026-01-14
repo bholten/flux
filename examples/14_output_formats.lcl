@@ -1,0 +1,54 @@
+;; Example 14: Output Formats
+;;
+;; Flux supports multiple output formats for CI/CD integration:
+;; - "human" (default): Human-readable terminal output
+;; - "junit": JUnit XML format for CI systems
+;;
+;; Configure the output format using Flux::configure before Flux::run:
+;;
+;;   Flux::configure "output_format" "junit"
+;;
+;; For CI/CD, redirect JUnit output to a file:
+;;
+;;   ./build/flux --junit tests.lcl > results.xml
+;;
+;; Run with: ./build/flux examples/14_output_formats.lcl
+
+;; Uncomment the next line to enable JUnit XML output:
+;; Flux::configure "output_format" "junit"
+
+Flux::Suite "Output Format Demo" {
+    Case "successful request" {
+        GET https://httpbin.org/status/200 {
+            on_response {
+                assert_eq $status_code 200
+            }
+        }
+    }
+
+    Case "status codes" {
+        GET https://httpbin.org/status/201 {
+            on_response {
+                assert_eq $status_code 201
+            }
+        }
+    }
+}
+
+Flux::Suite "Timing Demonstration" {
+    Case "fast request" {
+        GET https://httpbin.org/status/204 {
+            on_response {
+                assert_eq $status_code 204
+            }
+        }
+    }
+
+    Case "another request" {
+        GET https://httpbin.org/status/202 {
+            on_response {
+                assert_eq $status_code 202
+            }
+        }
+    }
+}

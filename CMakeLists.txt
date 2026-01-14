@@ -67,9 +67,10 @@ target_include_directories(flux PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-curl/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-json/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-crypto/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-time/include
 )
 
-target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto)
+target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time)
 
 add_dependencies(flux generate_dsl_header)
 

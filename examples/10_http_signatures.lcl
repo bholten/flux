@@ -63,9 +63,9 @@ Flux::Suite "HTTP Signatures" {
             }
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "Signature-Input"
-                Flux::contains $body "Signature"
+                assert_eq $status_code 200
+                contains? $body "Signature-Input"
+                contains? $body "Signature"
                 puts "HMAC signature headers were sent successfully"
             }
         }
@@ -81,9 +81,9 @@ Flux::Suite "HTTP Signatures" {
             }
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "Signature-Input"
-                Flux::contains $body "Signature"
+                assert_eq $status_code 200
+                contains? $body "Signature-Input"
+                contains? $body "Signature"
                 puts "RSA-PSS signature headers were sent successfully"
             }
         }
@@ -104,10 +104,10 @@ Flux::Suite "HTTP Signatures" {
             }
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "Signature-Input"
-                Flux::contains $body "x-acme-request-id"
-                Flux::contains $body "x-acme-timestamp"
+                assert_eq $status_code 200
+                contains? $body "Signature-Input"
+                contains? $body "x-acme-request-id"
+                contains? $body "x-acme-timestamp"
                 puts "Custom headers included in signature successfully"
             }
         }

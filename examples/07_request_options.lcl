@@ -16,7 +16,7 @@ Flux::Suite "Request Options" {
             timeout_ms 5000
 
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
             }
         }
     }
@@ -27,7 +27,7 @@ Flux::Suite "Request Options" {
 
             on_response {
                 ;; After following the redirect, we should get 200
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
             }
         }
     }
@@ -37,8 +37,8 @@ Flux::Suite "Request Options" {
             user_agent "MyCustomAgent/2.0"
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "MyCustomAgent/2.0"
+                assert_eq $status_code 200
+                contains? $body "MyCustomAgent/2.0"
             }
         }
     }
@@ -49,7 +49,7 @@ Flux::Suite "Request Options" {
             verbose 1
 
             on_response {
-                Flux::eq $status_code 200
+                assert_eq $status_code 200
             }
         }
     }

@@ -11,8 +11,11 @@
 #include <lcl-time.h>
 // clang-format on
 
-#include "generated/flux_dsl.h"
+#include "generated/flux.h"
 #include "interpreter.h"
+
+static const lcl_embedded_lib flux_lib = {"lib/flux.lcl", lib_flux_lcl,
+                                          sizeof(lib_flux_lcl)};
 
 struct interpreter {
   lcl_interp *interp;
@@ -51,17 +54,8 @@ interpreter *interpreter_new(void) {
   lcl_register_crypto(lcl);
   lcl_register_time(lcl);
 
-  lcl_value *result = NULL;
-
-  if (lcl_eval_string(lcl, (const char *)flux_dsl_lcl, &result) != LCL_RC_OK) {
-    fprintf(stderr, "[flux] error loading DSL\n");
-    print_lcl_error(lcl);
-    lcl_interp_free(lcl);
-    free(interp);
-    return NULL;
-  }
-  if (result) {
-    lcl_ref_dec(result);
+  if (lcl_register_embedded_lib(lcl, &flux_lib) != 0) {
+    fprintf(stderr, "Warning: Flux library could not be loaded\n");
   }
 
   return interp;

@@ -32,16 +32,12 @@ endif()
 
 # Generate embedded DSL header from lib/flux.lcl
 set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/flux.lcl)
-set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/flux_dsl.h)
+set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/flux.h)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
 add_custom_command(
   OUTPUT ${DSL_HEADER}
-  COMMAND xxd -i lib/flux.lcl > ${DSL_HEADER}.tmp
-  COMMAND sed -i -e "s/unsigned char/static const unsigned char/" -e "s/unsigned int/static const unsigned int/" -e "s/lib_flux_lcl/flux_dsl_lcl/g" ${DSL_HEADER}.tmp
-  # Add null terminator: xxd doesn't include one, but we need it for C strings
-  COMMAND sed -i -e "s/}\\;/, 0x00}\\;/" ${DSL_HEADER}.tmp
-  COMMAND ${CMAKE_COMMAND} -E rename ${DSL_HEADER}.tmp ${DSL_HEADER}
+  COMMAND xxd -i lib/flux.lcl > ${DSL_HEADER}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${DSL_SOURCE}
   COMMENT "Generating embedded DSL header from lib/flux.lcl"

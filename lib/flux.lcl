@@ -2,6 +2,11 @@
 ;;
 
 namespace Flux {
+    ;; curl handling
+    var _curl_init 0
+    ;; curl context
+    var c {}
+
     ;; Configuration (extensible for future options)
     ;; output_format: "human" (default), "junit", "tap" (future)
     var _config #{stop_on_failure 1 output_format "human"}
@@ -307,8 +312,14 @@ namespace Flux {
     ;; ============================================================================
 
     proc _execute_request {verb url request_config on_event_callback} {
-        curl::init
-        let c [curl::new]
+        if [not $_curl_init] {
+            curl::init
+            set! _curl_init 1
+        }
+
+        if [not $c] {
+            set! c [curl::new]
+        }
 
         curl::set_url $c $url
         curl::set_verb $c $verb
@@ -479,6 +490,8 @@ namespace Flux {
         if [!= $error_code 0] {
             set! response [put $response error $error_string]
         }
+
+        curl::reset $c
 
         return $response
     }

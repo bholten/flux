@@ -1,0 +1,40 @@
+;; Run all the suites
+;; Shows easy integration with Dagwood
+
+project flux_suites {
+    proc _generate_tasks {} {
+        let suites [io::glob *.lcl]
+
+        ;; setup out dir
+        task pre_reqs {
+            outputs .out/
+            run {
+                mkdir -p .out/
+            }
+        }
+
+        ;; Each task touches its output on success
+        foreach s $suites {
+            let out .out/$s.xml
+
+            task $s {
+                depends_on flux_suites::pre_reqs
+                inputs $s
+                outputs $out
+                run [subst {
+                    dache cache -i $s -o $out -- sh -c "flux --junit $s > $out"
+                    touch $out
+                }]
+            }
+        }
+
+        ;; Clean command
+        command clean {
+            run {
+                rm -rf .out/
+            }
+        }
+    }
+
+    _generate_tasks
+}

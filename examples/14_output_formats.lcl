@@ -15,39 +15,39 @@
 ;; Run with: ./build/flux examples/14_output_formats.lcl
 
 ;; Uncomment the next line to enable JUnit XML output:
-;; Flux::configure "output_format" "junit"
+;; Flux::configure output_format junit
 
 Flux::Suite "Output Format Demo" {
-    Case "successful request" {
+    Flux::Case "successful request" {
         GET https://httpbin.org/status/200 {
             on_response {
-                assert_eq $status_code 200
+                assert_status 200
             }
         }
     }
 
-    Case "status codes" {
+    Flux::Case "status codes" {
         GET https://httpbin.org/status/201 {
             on_response {
-                assert_eq $status_code 201
+                assert_status 201
             }
         }
     }
 }
 
 Flux::Suite "Timing Demonstration" {
-    Case "fast request" {
+    Flux::Case "fast request" {
         GET https://httpbin.org/status/204 {
             on_response {
-                assert_eq $status_code 204
+                assert_status 204
             }
         }
     }
 
-    Case "another request" {
+    Flux::Case "another request" {
         GET https://httpbin.org/status/202 {
             on_response {
-                assert_eq $status_code 202
+                assert_status 202
             }
         }
     }

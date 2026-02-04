@@ -6,33 +6,32 @@
 ;; Run with: ./build/flux examples/05_json_response.lcl
 
 Flux::Suite "JSON Response Handling" {
-    Case "access top-level JSON fields" {
+    Flux::Case "access top-level JSON fields" {
         GET https://httpbin.org/get {
             on_response {
-                Flux::assert_eq $status_code 200
+                assert_status 200
 
                 ;; Use get for top-level fields
-                let url [get $json "url"]
+                let url [get $json url]
 
-                Flux::assert_eq $url "https://httpbin.org/get"
+                assert [== $url https://httpbin.org/get]
             }
         }
     }
 
-    Case "access nested JSON fields" {
+    Flux::Case "access nested JSON fields" {
         GET https://httpbin.org/json {
             on_response {
-                Flux::assert_eq $status_code 200
-
+                assert_status 200
                 ;; Navigate nested structures with multiple get calls
                 let slideshow [get $json "slideshow"]
                 let title     [get $slideshow "title"]
 
-                Flux::assert_eq $title "Sample Slide Show"
+                assert [== $title "Sample Slide Show"]
 
                 let author [get $slideshow "author"]
 
-                Flux::assert_eq $author "Yours Truly"
+                assert [== $author "Yours Truly"]
             }
         }
     }

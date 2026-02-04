@@ -41,6 +41,7 @@ interpreter *interpreter_new(void) {
   }
 
   lcl_interp *lcl = lcl_interp_new();
+
   if (!lcl) {
     free(interp);
     return NULL;
@@ -65,9 +66,11 @@ void interpreter_delete(interpreter *interp) {
   if (!interp) {
     return;
   }
+
   if (interp->interp) {
     lcl_interp_free(interp->interp);
   }
+
   free(interp->script_path);
   free(interp);
 }
@@ -86,10 +89,12 @@ interp_result interpreter_eval(interpreter *interp, const char *script) {
   }
 
   lcl_value *result = NULL;
+
   if (lcl_eval_string(interp->interp, script, &result) != LCL_RC_OK) {
     print_lcl_error(interp->interp);
     return INTERP_ERR;
   }
+
   if (result) {
     lcl_ref_dec(result);
   }
@@ -114,6 +119,7 @@ interp_result interpreter_eval_file(interpreter *interp, const char *filename) {
   fseek(f, 0, SEEK_SET);
 
   char *script = malloc(len + 1);
+
   if (!script) {
     fclose(f);
     return INTERP_ERR;
@@ -131,11 +137,13 @@ interp_result interpreter_eval_file(interpreter *interp, const char *filename) {
     free(script);
     return INTERP_ERR;
   }
+
   if (result) {
     lcl_ref_dec(result);
   }
 
   free(script);
+  free(interp->script_path);
   interp->script_path = strdup(filename);
 
   return INTERP_OK;
@@ -147,6 +155,7 @@ interp_result interpreter_execute(interpreter *interp) {
   }
 
   lcl_value *result = NULL;
+
   if (lcl_eval_string(interp->interp, "[Flux::run]", &result) != LCL_RC_OK) {
     print_lcl_error(interp->interp);
     return INTERP_ERR;
@@ -156,12 +165,17 @@ interp_result interpreter_execute(interpreter *interp) {
 
   if (result) {
     lcl_value *failed_val = NULL;
+
     if (lcl_dict_get(result, "failed", &failed_val) == LCL_OK && failed_val) {
       long failed = 0;
+
       if (lcl_value_to_int(failed_val, &failed) == LCL_OK && failed > 0) {
         ret = INTERP_ERR;
       }
+
+      lcl_ref_dec(failed_val);
     }
+
     lcl_ref_dec(result);
   }
 
@@ -172,5 +186,6 @@ void interpreter_print_error(interpreter *interp) {
   if (!interp || !interp->interp) {
     return;
   }
+
   print_lcl_error(interp->interp);
 }

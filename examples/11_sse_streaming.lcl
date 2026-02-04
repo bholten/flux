@@ -21,7 +21,7 @@ var event_count 0
 var events_received []
 
 Flux::Suite "SSE Streaming" {
-    Case "should receive SSE events from stream" {
+    Flux::Case "should receive SSE events from stream" {
         GET https://sse.dev/test {
             ;; SSE streams run until timeout or connection close
             timeout_ms 5000
@@ -37,7 +37,7 @@ Flux::Suite "SSE Streaming" {
                 ;; Called after stream ends (timeout or server close)
                 puts "Stream ended after $event_count events"
                 ;; SSE streams typically return 200
-                assert_eq $status_code 200
+                assert_status 200
                 ;; We should have received at least one event
                 assert [> $event_count 0]
             }

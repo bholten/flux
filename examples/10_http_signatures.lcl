@@ -50,7 +50,7 @@ W9gEujkvlmDLlWaNG5+PdPCk
 -----END PRIVATE KEY-----}
 
 Flux::Suite "HTTP Signatures" {
-    Case "HMAC-SHA256 signed request" {
+    Flux::Case "HMAC-SHA256 signed request" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             body {{"message": "Hello, signed world!"}}
@@ -59,19 +59,19 @@ Flux::Suite "HTTP Signatures" {
                 key_id "test-key-1"
                 key_pem $hmac_secret
                 algorithm "hmac-sha256"
-                cover [list "@method" "@authority" "@path" "content-type"]
+                cover ("@method" "@authority" "@path" "content-type")
             }
 
             on_response {
-                assert_eq $status_code 200
-                contains? $body "Signature-Input"
-                contains? $body "Signature"
+                assert_status 200
+                assert_contains $body "Signature-Input"
+                assert_contains $body "Signature"
                 puts "HMAC signature headers were sent successfully"
             }
         }
     }
 
-    Case "RSA-PSS-SHA256 signed request" {
+    Flux::Case "RSA-PSS-SHA256 signed request" {
         GET https://httpbin.org/get {
             http_signature {
                 key_id "rsa-test-key"
@@ -81,15 +81,15 @@ Flux::Suite "HTTP Signatures" {
             }
 
             on_response {
-                assert_eq $status_code 200
-                contains? $body "Signature-Input"
-                contains? $body "Signature"
+                assert_status 200
+                assert_contains $body "Signature-Input"
+                assert_contains $body "Signature"
                 puts "RSA-PSS signature headers were sent successfully"
             }
         }
     }
 
-    Case "signature with custom headers" {
+    Flux::Case "signature with custom headers" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             header "X-Acme-Request-Id: req-abc-123"
@@ -100,14 +100,14 @@ Flux::Suite "HTTP Signatures" {
                 key_id "acme-service-key"
                 key_pem $hmac_secret
                 algorithm "hmac-sha256"
-                cover [list "@method" "@authority" "@path" "content-type" "x-acme-request-id" "x-acme-timestamp"]
+                cover ("@method" "@authority" "@path" "content-type" "x-acme-request-id" "x-acme-timestamp")
             }
 
             on_response {
-                assert_eq $status_code 200
-                contains? $body "Signature-Input"
-                contains? $body "x-acme-request-id"
-                contains? $body "x-acme-timestamp"
+                assert_status 200
+                assert_contains $body "Signature-Input"
+                assert_contains $body "x-acme-request-id"
+                assert_contains $body "x-acme-timestamp"
                 puts "Custom headers included in signature successfully"
             }
         }

@@ -6,7 +6,7 @@
 ;; Run with: ./build/flux examples/02_headers.lcl
 
 Flux::Suite "Request Headers" {
-    Case "set headers as a block" {
+    Flux::Case "set headers as a block" {
         GET https://httpbin.org/headers {
             headers {
                 Accept: application/json
@@ -15,24 +15,23 @@ Flux::Suite "Request Headers" {
             }
 
             on_response {
-                Flux::assert_eq $status_code 200
+                assert_status 200
 
                 ;; httpbin.org/headers echoes back the headers we sent
-
-                Flux::contains? $body "Flux/1.0"
-                Flux::contains? $body "my-value"
+                assert_contains $body "Flux/1.0"
+                assert_contains $body "my-value"
             }
         }
     }
 
-    Case "set headers individually" {
+    Flux::Case "set headers individually" {
         GET https://httpbin.org/headers {
             header "Accept: application/json"
             header "X-Custom: test-value-123"
 
             on_response {
-                Flux::assert_eq $status_code 200
-                Flux::contains? $body "test-value-123"
+                assert_status 200
+                assert_contains $body "test-value-123"
             }
         }
     }

@@ -6,7 +6,7 @@
 ;; Run with: ./build/flux examples/09_api_workflow.lcl
 
 Flux::Suite "API Workflow - CRUD Operations" {
-    Case "POST creates resource" {
+    Flux::Case "POST creates resource" {
         POST https://httpbin.org/post {
             header "Content-Type: application/json"
             header "Authorization: Bearer test-token"
@@ -14,17 +14,17 @@ Flux::Suite "API Workflow - CRUD Operations" {
             body {{"username": "newuser", "email": "test@example.com"}}
 
             on_response {
-                assert_eq $status_code 200
-                contains? $body "newuser"
-                contains? $body "test@example.com"
+                assert_status 200
+                assert_contains $body "newuser"
+                assert_contains $body "test@example.com"
             }
         }
     }
 
-    Case "GET retrieves resource" {
+    Flux::Case "GET retrieves resource" {
         GET https://httpbin.org/get {
             on_response {
-                assert_eq $status_code 200
+                assert_status 200
             }
         }
     }
@@ -32,28 +32,28 @@ Flux::Suite "API Workflow - CRUD Operations" {
 }
 
 Flux::Suite "API Workflow - Error Handling" {
-    Case "handle 404 not found" {
+    Flux::Case "handle 404 not found" {
         GET https://httpbin.org/status/404 {
             on_response {
-                assert_eq $status_code 404
+                assert_status 404
             }
         }
     }
 
-    Case "handle 500 server error" {
+    Flux::Case "handle 500 server error" {
         GET https://httpbin.org/status/500 {
             on_response {
-                assert_eq $status_code 500
+                assert_status 500
             }
         }
     }
 
-    Case "verify delay endpoint" {
+    Flux::Case "verify delay endpoint" {
         GET https://httpbin.org/delay/1 {
             timeout_ms 5000
 
             on_response {
-                assert_eq $status_code 200
+                assert_status 200
                 puts "Request completed in $total_time seconds"
             }
         }

@@ -1,6 +1,11 @@
 ;; Flux - HTTP Testing Framework DSL
 ;;
 
+;; Avoid namespace issues with variables named 'json'
+namespace JSON {
+    import json
+}
+
 namespace Flux {
     ;; curl handling
     var _curl_init 0
@@ -9,7 +14,7 @@ namespace Flux {
 
     ;; Configuration (extensible for future options)
     ;; output_format: "human" (default), "junit", "tap" (future)
-    var _config #{stop_on_failure 1 output_format "human"}
+    var _config #{stop_on_failure 0 output_format "human"}
 
     ;; Test collection state
     var _suites ()
@@ -37,7 +42,7 @@ namespace Flux {
         var _store #{}
     }
 
-    proc export {name value} {
+    proc export! {name value} {
         set! Flux::State::_store [put $Flux::State::_store $name $value]
     }
 
@@ -57,41 +62,13 @@ namespace Flux {
         set! Flux::State::_store [dict]
     }
 
-    ;; ============================================================================
-    ;; Assertions
-    ;; ============================================================================
-
-    proc assert {condition} {
-        if [not $condition] {
-            error "Assertion failed"
-        }
-    }
-
-    proc assert_msg {condition msg} {
-        if [not $condition] {
-            error $msg
-        }
-    }
-
-    proc assert_eq {actual expected} {
-        if [!= $actual $expected] {
-            error "Expected <$expected> but got <$actual>"
-        }
-    }
-
-    proc assert_neq {actual expected} {
-        if [== $actual $expected] {
-            error "Expected value to not equal <$expected>"
-        }
-    }
-
-    proc contains? {haystack needle} {
+    proc assert_contains {haystack needle} {
         if [< [String::find $haystack $needle] 0] {
             error "Expected <$haystack> to contain <$needle>"
         }
     }
 
-    proc header_exists? {headers name} {
+    proc assert_header_exists {headers name} {
         let key [String::lower $name]
 
         if [not [has? $headers $key]] {
@@ -99,7 +76,7 @@ namespace Flux {
         }
     }
 
-    proc header_eq? {headers name expected} {
+    proc assert_header_eq {headers name expected} {
         let key [String::lower $name]
 
         if [not [has? $headers $key]] {
@@ -127,7 +104,8 @@ namespace Flux {
 
         foreach raw $segments {
             ;; Unescape ~1 -> / and ~0 -> ~
-            let seg [String::replace [String::replace $raw "~1" "/"] "~0" "~"]
+            let seg [-> $raw {String::replace "~1" "/"}
+                             {String::replace "~0" "~"}]
 
             if [has? $node $seg] {
                 set! node [get $node $seg]
@@ -456,17 +434,16 @@ namespace Flux {
         let effective_url [curl::get_effective_url $c]
         let total_time [curl::get_total_time $c]
 
-        ;; Build headers dict from content-type
         var headers #{}
 
         if [not [empty? $content_type]] {
             set! headers [put $headers "content-type" [list $content_type]]
         }
 
-        ;; Try to parse body as JSON if content-type suggests it
         var parsed_json {}
+
         if [>= [String::find $content_type "application/json"] 0] {
-            if [catch { json::decode $response_body } result _err] {
+            if [catch {JSON::decode $response_body} result _err] {
                 ;; JSON parse failed, leave parsed_json empty
             } else {
                 set! parsed_json $result
@@ -477,8 +454,8 @@ namespace Flux {
         var response #{
             status_code $status_code
             body $response_body
-            headers $headers
             json $parsed_json
+            headers $headers
             content_type $content_type
             effective_url $effective_url
             total_time $total_time
@@ -637,16 +614,14 @@ namespace Flux {
         let on_response_cb [get $built on_response]
         let on_event_cb [get $built on_event]
 
-        ;; Execute the request (SSE mode if on_event callback is provided)
         let response [_execute_request $verb $url $config $on_event_cb]
 
-        ;; If there's an on_response callback, execute it with response variables in scope
         if [not [empty? $on_response_cb]] {
             ;; Bind response variables for the callback
             let status_code [get $response status_code]
             let body [get $response body]
-            let headers [get $response headers]
             let json [get $response json]
+            let headers [get $response headers]
             let content_type [get $response content_type]
             let effective_url [get $response effective_url]
             let total_time [get $response total_time]
@@ -658,6 +633,10 @@ namespace Flux {
 
             if [has? $response error] {
                 set! response_error [get $response error]
+            }
+
+            proc assert_status {val} {
+                assert [== $status_code $val] "Expected status code $val but got $status_code"
             }
 
             ;; Execute the callback - it has access to all the above via closure
@@ -714,7 +693,7 @@ namespace Flux {
         set! _current_suite $name
 
         ;; Execute suite body to collect cases
-        namespace Flux { eval $suite_body }
+        eval $suite_body
 
         ;; Store the suite
         let suite #{name $name cases $_current_cases}

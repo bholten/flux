@@ -3,7 +3,7 @@
 ;; This file encapsulates complex workflows so tests don't need to know
 ;; the implementation details. When the auth flow changes, update here once.
 ;;
-;; Usage: load examples/lib/workflows.lcl
+;; Usage: require examples/lib/workflows.lcl
 
 ;; ============================================================================
 ;; Authentication Workflows
@@ -11,45 +11,40 @@
 
 ;; Generate an auth token for a user
 ;; Returns: #{token "..." user_id "..." email "..."}
-namespace auth {o
+namespace auth {
     proc login {email password} {
-        ;; Check cache first - avoid redundant logins within a test run
-        let cache_key "auth:$email"
+        ;; Memoize: redundant logins for the same email within a test run
+        ;; return the cached result without re-hitting the API.
+        Flux::cache "auth:$email" {
+            var _result #{}
+            var login_ok 0
 
-        if [Flux::has_export? $cache_key] {
-            return [Flux::import $cache_key]
-        }
+            ;; Simulate login (using httpbin to echo back our request)
+            POST https://httpbin.org/post {
+                header "Content-Type: application/json"
+                body [subst {{"email": "$email", "password": "$password", "grant_type": "password"}}]
 
-        var _result #{}
-        var login_ok 0
-
-        ;; Simulate login (using httpbin to echo back our request)
-        POST https://httpbin.org/post {
-            header "Content-Type: application/json"
-            body [subst {{"email": "$email", "password": "$password", "grant_type": "password"}}]
-
-            on_response {
-                if [== $status_code 200] {
-                    set! login_ok 1
-                    ;; In real API, token would come from response
-                    ;; Here we simulate it
-                    let fake_token "tok_[String::replace $email {@} {_}]_[Flux::_get_unix_time]"
-                    set! _result #{token $fake_token
-                                   user_id "user_12345"
-                                   email $email
-                                   expires_in 3600}
+                on_response {
+                    if [== $status_code 200] {
+                        set! login_ok 1
+                        ;; In real API, token would come from response
+                        ;; Here we simulate it
+                        let fake_token "tok_[String::replace $email {@} {_}]_[Flux::_get_unix_time]"
+                        set! _result #{token $fake_token
+                                       user_id "user_12345"
+                                       email $email
+                                       expires_in 3600}
+                    }
                 }
             }
+
+            if [not $login_ok] {
+                error "auth::login failed for $email"
+            }
+
+            ;; Last expression IS the cached value (don't use `return`)
+            $_result
         }
-
-        if [not $login_ok] {
-            error "auth::login failed for $email"
-        }
-
-        ;; Cache for subsequent calls
-        Flux::export! $cache_key $_result
-
-        return $_result
     }
 
     ;; Get auth headers dict for a logged-in user
@@ -57,16 +52,16 @@ namespace auth {o
     proc headers {email password} {
         let auth [auth::login $email $password]
         return [dict Authorization "Bearer [get $auth token]"]
-}
+    }
 
     ;; Logout / invalidate cached token
     proc logout {email} {
         let cache_key "auth:$email"
-        if [Flux::has_export? $cache_key] {
-            ;; In real implementation, would call logout endpoint
-            ;; For now, just clear the cache
-            ;; Note: We can't delete individual keys, so we just export empty
-            Flux::export! $cache_key {}
+        if [Flux::cache_has? $cache_key] {
+            ;; In real implementation, would call logout endpoint.
+            ;; The cache API has no single-key delete; setting to empty
+            ;; effectively invalidates for our purposes.
+            Flux::cache_set $cache_key {}
         }
     }
 }
@@ -89,10 +84,10 @@ namespace posts {
                 if [== $status_code 201] {
                     set! created 1
                     set! result [dict \
-                        id [get $json "id"] \
-                        title [get $json "title"] \
-                        body [get $json "body"] \
-                        userId [get $json "userId"]]
+                        id [get $body_json "id"] \
+                        title [get $body_json "title"] \
+                        body [get $body_json "body"] \
+                        userId [get $body_json "userId"]]
                 }
             }
         }
@@ -114,7 +109,7 @@ namespace posts {
             on_response {
                 if [== $status_code 200] {
                     set! found 1
-                    set! result $json
+                    set! result $body_json
                 }
             }
         }
@@ -144,7 +139,9 @@ namespace setup {
         ;; Step 2: Create test data
         let _post [posts::create "Test Post" "Created by automated test" 1]
 
-        ;; Return everything the test needs
-        return #{auth $_auth post [get $_post json]}
+        ;; Return everything the test needs. posts::create already returns
+        ;; the flat post dict (id/title/body/userId), so no [get .. json]
+        ;; unwrapping is needed.
+        return #{auth $_auth post $_post}
     }
 }

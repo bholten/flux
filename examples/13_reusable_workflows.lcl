@@ -9,8 +9,11 @@
 ;;
 ;; Run with: flux 13_reusable_workflows.lcl
 
-;; Load our workflow library
-load lib/workflows.lcl
+;; Pull in the workflow library. `require` evaluates the file once in an
+;; isolated frame and lifts only its namespaces (auth, posts, setup) — no
+;; loose top-level lets leak into this test. Path is relative to the
+;; project root, so run from there: ./build/flux examples/13_reusable_workflows.lcl
+require examples/lib/workflows.lcl
 
 ;; ============================================================================
 ;; Tests are now clean and declarative
@@ -19,8 +22,7 @@ load lib/workflows.lcl
 Flux::Suite "Posts API" {
     Flux::Case "can create and retrieve a post" {
         ;; One line to create a post - no need to know the API details
-        let post_response [posts::create "My Test Post" "This is the body" 1]
-        let post [get $post_response json]
+        let post [posts::create "My Test Post" "This is the body" 1]
         puts "Created post ID: [get $post id]"
 
         ;; Verify we got what we expected
@@ -29,7 +31,7 @@ Flux::Suite "Posts API" {
     }
 
     Flux::Case "can fetch an existing post" {
-        let post [-> [posts::lookup 1] {get json}]
+        let post [posts::lookup 1]
 
         assert [has? $post "title"]
         assert [has? $post "body"]
@@ -131,11 +133,11 @@ Flux::Suite "Full Environment Setup" {
         }
     }
 
-    Flux::Case "clear_exports clears all state" {
-        Flux::clear_exports!
+    Flux::Case "cache_clear clears all state" {
+        Flux::cache_clear
 
         ;; Verify state is cleared
-        assert [not [Flux::has_export? "auth:admin@example.com"]]
+        assert [not [Flux::cache_has? "auth:admin@example.com"]]
 
         puts "Environment torn down"
     }

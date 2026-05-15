@@ -1,0 +1,125 @@
+;; Example 12: Workflow Memoization with Flux::cache
+;;
+;; Demonstrates the recommended pattern for sharing state between cases:
+;; define workflow procs that internally use Flux::cache to memoize their
+;; result. Test cases call the procs and get plain values back — they never
+;; reach into the cache directly.
+;;
+;; This is the cleaner alternative to "export this from case A so case B can
+;; import it." Case B doesn't need to know whether the workflow proc hit the
+;; API or returned a cached value; it just calls the proc and gets data back.
+;;
+;; Run with: ./build/flux examples/12_workflow_cache.lcl
+
+;; ============================================================================
+;; A small inline workflow library
+;;
+;; In real projects this would live in a separate file and be loaded with
+;; `load lib/workflows.lcl`. See example 13 for that pattern.
+;; ============================================================================
+
+namespace post_workflow {
+    ;; Create a test post on the first call; return the cached result on
+    ;; subsequent calls. The Flux::cache macro evaluates the block once per
+    ;; key, stashes the result, and returns the stashed value on future calls.
+    proc create_test_post {} {
+        Flux::cache "post_workflow:test_post" {
+            var result #{}
+            POST https://jsonplaceholder.typicode.com/posts {
+                header "Content-Type: application/json"
+                body {{"title": "Cached Test Post", "body": "Created by Flux", "userId": 1}}
+
+                on_response {
+                    assert_status 201
+                    set! result #{
+                        id [get $body_json "id"]
+                        title [get $body_json "title"]
+                    }
+                }
+            }
+
+            ;; Last expression IS the cached value. Don't use `return` here —
+            ;; it would unwind create_test_post and bypass Flux::cache_set.
+            $result
+        }
+    }
+}
+
+namespace auth_workflow {
+    ;; Memoize a login. Real-world version would call a real auth endpoint
+    ;; and pull the token out of the response.
+    proc token {} {
+        Flux::cache "auth_workflow:token" {
+            var token {}
+            POST https://httpbin.org/post {
+                header "Content-Type: application/json"
+                body {{"username": "testuser", "password": "secret"}}
+
+                on_response {
+                    assert_status 200
+                    set! token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test"
+                }
+            }
+            $token
+        }
+    }
+}
+
+;; ============================================================================
+;; Tests: call the workflow procs and get plain values back
+;; ============================================================================
+
+Flux::Suite "Memoized post workflow" {
+    Flux::Case "first call hits the API" {
+        let post [post_workflow::create_test_post]
+
+        assert [has? $post id]
+        assert [== [get $post title] "Cached Test Post"]
+
+        puts "Got post id: [get $post id]"
+    }
+
+    Flux::Case "second call returns the cached result" {
+        ;; No new HTTP request — cache_has? hits, cache_get returns the
+        ;; same dict the first call produced.
+        let post [post_workflow::create_test_post]
+
+        puts "Cached post id: [get $post id]"
+    }
+}
+
+Flux::Suite "Authenticated requests via cached token" {
+    Flux::Case "token call produces a token" {
+        let token [auth_workflow::token]
+        assert [!= $token ""]
+
+        puts "Token: $token"
+    }
+
+    Flux::Case "subsequent token call reuses the cache" {
+        let token [auth_workflow::token]
+
+        GET https://httpbin.org/headers {
+            header "Authorization: Bearer $token"
+
+            on_response {
+                assert_status 200
+                assert_contains $body "Bearer"
+                puts "Used cached token for authenticated request"
+            }
+        }
+    }
+}
+
+Flux::Suite "Cache reset" {
+    Flux::Case "cache_clear empties the cache" {
+        Flux::cache_clear
+
+        assert [not [Flux::cache_has? "post_workflow:test_post"]]
+        assert [not [Flux::cache_has? "auth_workflow:token"]]
+
+        puts "Cache cleared"
+    }
+}
+
+Flux::run

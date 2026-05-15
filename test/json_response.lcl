@@ -1,0 +1,59 @@
+;; JSON response handling — body_json parsing, json_at / assert_json,
+;; deep pointer navigation. Echo-server returns a deterministic nested
+;; JSON shape we can navigate.
+
+let base "http://localhost:8080"
+
+Flux::Suite "JSON pointer assertions" {
+    Flux::Case "shallow pointer" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                assert_json_has "/http"
+            }
+        }
+    }
+
+    Flux::Case "deep pointer" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                assert_json_has "/http/method"
+                assert_json "/http/method" "GET"
+            }
+        }
+    }
+
+    Flux::Case "echoed query param via json_at" {
+        GET "$base/?greeting=hi" {
+            on_response {
+                assert_status 200
+                assert_json "/request/query/greeting" "hi"
+            }
+        }
+    }
+
+    Flux::Case "echoed body via json_at" {
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"k":"v","n":42}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/k" "v"
+                assert_json "/request/body/n" 42
+            }
+        }
+    }
+
+    Flux::Case "missing pointer errors" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                ;; assert_json_has should throw on missing pointer;
+                ;; catch and verify we got an error rather than success.
+                let missed [catch {assert_json_has "/no/such/thing"} _r _e]
+                assert $missed
+            }
+        }
+    }
+}

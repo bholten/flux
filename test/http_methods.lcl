@@ -1,0 +1,83 @@
+;; Exercise each HTTP verb against the local echo server, verifying both
+;; the response status and that the echoed method matches what we sent.
+;;
+;; Requires: docker compose up -d (ealen/echo-server on :8080)
+
+let base "http://localhost:8080"
+
+Flux::Suite "HTTP methods" {
+    Flux::Case "GET" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "GET"
+            }
+        }
+    }
+
+    Flux::Case "POST" {
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"k":"v"}}
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "POST"
+                assert_json "/request/body/k" "v"
+            }
+        }
+    }
+
+    Flux::Case "PUT" {
+        PUT "$base/" {
+            header "Content-Type: application/json"
+            body {{"updated":1}}
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "PUT"
+                assert_json "/request/body/updated" 1
+            }
+        }
+    }
+
+    Flux::Case "PATCH" {
+        PATCH "$base/" {
+            header "Content-Type: application/json"
+            body {{"patched":1}}
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "PATCH"
+                assert_json "/request/body/patched" 1
+            }
+        }
+    }
+
+    Flux::Case "DELETE" {
+        DELETE "$base/" {
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "DELETE"
+            }
+        }
+    }
+
+    Flux::Case "OPTIONS" {
+        OPTIONS "$base/" {
+            on_response {
+                ;; ealen/echo-server replies 200 to OPTIONS with the
+                ;; standard echo payload.
+                assert_status 200
+                assert_json "/http/method" "OPTIONS"
+            }
+        }
+    }
+
+    Flux::Case "HEAD" {
+        HEAD "$base/" {
+            on_response {
+                ;; HEAD returns no body but should give us 200 and headers.
+                assert_status 200
+                assert_header "Content-Type"
+            }
+        }
+    }
+}

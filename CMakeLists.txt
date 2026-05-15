@@ -30,16 +30,22 @@ if(FLUX_ENABLE_ASAN)
   set(FLUX_LINK_OPTIONS -fsanitize=address,undefined)
 endif()
 
-# Generate embedded DSL header from lib/flux.lcl
+# Generate embedded DSL header from lib/flux.lcl.
+# Uses a small CMake helper (no xxd dependency); output is source-
+# compatible with `xxd -i lib/flux.lcl`.
 set(DSL_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/lib/flux.lcl)
 set(DSL_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/flux.h)
+set(DSL_EMBED_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_lib.cmake)
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/generated)
 
 add_custom_command(
   OUTPUT ${DSL_HEADER}
-  COMMAND xxd -i lib/flux.lcl > ${DSL_HEADER}
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${DSL_SOURCE}
+  COMMAND ${CMAKE_COMMAND}
+    -DINPUT=${DSL_SOURCE}
+    -DOUTPUT=${DSL_HEADER}
+    -DSYMBOL=lib_flux_lcl
+    -P ${DSL_EMBED_SCRIPT}
+  DEPENDS ${DSL_SOURCE} ${DSL_EMBED_SCRIPT}
   COMMENT "Generating embedded DSL header from lib/flux.lcl"
 )
 
@@ -64,9 +70,10 @@ target_include_directories(flux PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-json/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-crypto/include
   ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-time/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-regex/include
 )
 
-target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time)
+target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time lcl_regex)
 
 add_dependencies(flux generate_dsl_header)
 
@@ -75,3 +82,18 @@ if(FLUX_ENABLE_ASAN)
 endif()
 
 install(TARGETS flux RUNTIME DESTINATION bin)
+
+# Test suite — runs Flux against itself via the docker-compose echo
+# server (start it first: `docker compose up -d`). Each test/*.lcl
+# file becomes one ctest case; `ctest -j` runs them in parallel.
+enable_testing()
+
+file(GLOB FLUX_TEST_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/test/*.lcl)
+foreach(test_file ${FLUX_TEST_FILES})
+  get_filename_component(test_name ${test_file} NAME_WE)
+  add_test(
+    NAME flux_${test_name}
+    COMMAND $<TARGET_FILE:flux> ${CMAKE_CURRENT_SOURCE_DIR}/${test_file}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+endforeach()

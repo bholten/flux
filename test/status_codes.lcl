@@ -1,0 +1,50 @@
+;; ealen/echo-server accepts `?echo_code=N` to return any status code.
+;; Exercise the status-related assertion macros against deterministic
+;; responses (no httpbin flake).
+
+let base "http://localhost:8080"
+
+Flux::Suite "Status codes" {
+    Flux::Case "200 OK" {
+        GET "$base/?echo_code=200" {
+            on_response { assert_status 200 }
+        }
+    }
+
+    Flux::Case "201 Created" {
+        POST "$base/?echo_code=201" {
+            body {{"x":1}}
+            on_response { assert_status 201 }
+        }
+    }
+
+    Flux::Case "204 No Content" {
+        DELETE "$base/?echo_code=204" {
+            on_response { assert_status 204 }
+        }
+    }
+
+    Flux::Case "404 Not Found" {
+        GET "$base/?echo_code=404" {
+            on_response { assert_status 404 }
+        }
+    }
+
+    Flux::Case "418 I'm a teapot" {
+        GET "$base/?echo_code=418" {
+            on_response { assert_status 418 }
+        }
+    }
+
+    Flux::Case "500 Server Error" {
+        GET "$base/?echo_code=500" {
+            on_response { assert_status 500 }
+        }
+    }
+
+    Flux::Case "assert_status_in matches" {
+        GET "$base/?echo_code=202" {
+            on_response { assert_status_in (200 201 202) }
+        }
+    }
+}

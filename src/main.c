@@ -45,34 +45,16 @@ int main(int argc, const char **argv) {
     return EXIT_FAILURE;
   }
 
-  int remaining_argc = argc - i - 1;
-  const char **remaining_argv = argv + i + 1;
-
-  if (remaining_argc > 0) {
-    if (interpreter_setup_environment(interp, remaining_argc, remaining_argv) !=
-        INTERP_OK) {
-      fprintf(stderr, "[flux] error setting global variables\n");
-      interpreter_delete(interp);
-      return EXIT_FAILURE;
-    }
-  }
-
-  if (interpreter_eval_file(interp, file) != INTERP_OK) {
-    fprintf(stderr, "[flux] error evaluating %s\n", file);
-    interpreter_print_error(interp);
+  if (interpreter_bind_cli_opts(interp, output_junit ? "junit" : NULL) !=
+      INTERP_OK) {
+    fprintf(stderr, "[flux] error binding CLI options\n");
     interpreter_delete(interp);
     return EXIT_FAILURE;
   }
 
-  if (output_junit) {
-    if (interpreter_eval(interp,
-                         "Flux::configure \"output_format\" \"junit\"") !=
-        INTERP_OK) {
-      fprintf(stderr, "[flux] error setting output format\n");
-      interpreter_print_error(interp);
-      interpreter_delete(interp);
-      return EXIT_FAILURE;
-    }
+  if (interpreter_eval_file(interp, file) != INTERP_OK) {
+    interpreter_delete(interp);
+    return EXIT_FAILURE;
   }
 
   interp_result result = interpreter_execute(interp);

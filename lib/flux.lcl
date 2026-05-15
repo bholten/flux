@@ -1,96 +1,63 @@
 ;; Flux - HTTP Testing Framework DSL
-;;
-
-;; Avoid namespace issues with variables named 'json'
-namespace JSON {
-    import json
-}
 
 namespace Flux {
-    ;; curl handling
-    var _curl_init 0
-    ;; curl context
-    var c {}
-
-    ;; Configuration (extensible for future options)
-    ;; output_format: "human" (default), "junit", "tap" (future)
     var _config #{stop_on_failure 0 output_format "human"}
 
-    ;; Test collection state
     var _suites ()
     var _current_suite {}
     var _current_cases ()
 
-    ;; Results tracking
     var _results ()
     var _failed 0
 
-    ;; ============================================================================
-    ;; State Store (for sharing data between tests)
-    ;; ============================================================================
-    ;;
-    ;; Provides in-memory storage for passing values between test cases.
-    ;; Useful for API workflows where one test creates a resource and
-    ;; subsequent tests need its ID or auth tokens.
-    ;;
-    ;; Usage:
-    ;;   Flux::export "token" $auth_token     ;; store a value
-    ;;   let token [Flux::import "token"]     ;; retrieve a value
-    ;;   Flux::has_export "token"             ;; check if exists (returns 0/1)
-    ;;   Flux::clear_exports                  ;; clear all stored values
+    ;; The cache lives in a nested namespace so its mutation point is
+    ;; explicit at every call site — bare `_store` would resolve via
+    ;; def-target chain and read as if it were a local. The fully
+    ;; qualified `Flux::State::_store` makes it visually obvious that
+    ;; we're poking shared state across a namespace boundary.
     namespace State {
         var _store #{}
     }
 
-    proc export! {name value} {
+    proc cache_set {name value} {
         set! Flux::State::_store [put $Flux::State::_store $name $value]
     }
 
-    proc import {name} {
+    proc cache_get {name} {
         if [has? $Flux::State::_store $name] {
             return [get $Flux::State::_store $name]
         }
 
-        error "Flux::import: no exported value for '$name'"
+        error "Flux::cache_get: no value cached under '$name'"
     }
 
-    proc has_export? {name} {
+    proc cache_has? {name} {
         has? $Flux::State::_store $name
     }
 
-    proc clear_exports! {} {
+    proc cache_clear {} {
         set! Flux::State::_store [dict]
     }
 
-    proc assert_contains {haystack needle} {
-        if [< [String::find $haystack $needle] 0] {
-            error "Expected <$haystack> to contain <$needle>"
+    ;; Memoize a block under a key. Body runs in the caller's frame on a
+    ;; cache miss; on a hit, returns the cached value without re-running.
+    ;; Convention: the body's last expression IS the cached value — `return`
+    ;; would unwind the enclosing user proc and bypass cache_set.
+    macro cache {key body} {
+        let k [gensym _cache_key]
+        let v [gensym _cache_val]
+        quasiquote {
+            let ,$k ,$key
+            if [Flux::cache_has? $,$k] {
+                Flux::cache_get $,$k
+            } else {
+                let ,$v [eval {,$body}]
+                Flux::cache_set $,$k $,$v
+                $,$v
+            }
         }
     }
 
-    proc assert_header_exists {headers name} {
-        let key [String::lower $name]
-
-        if [not [has? $headers $key]] {
-            error "Expected header <$name> to exist"
-        }
-    }
-
-    proc assert_header_eq {headers name expected} {
-        let key [String::lower $name]
-
-        if [not [has? $headers $key]] {
-            error "Expected header <$name> to exist"
-        }
-
-        let actual [get [get $headers $key] 0]
-
-        if [!= $actual $expected] {
-            error "Header <$name>: expected <$expected> got <$actual>"
-        }
-    }
-
-    ;; JSON pointer access (RFC 6901)
     proc json_at {data pointer} {
         if [== $pointer ""] { return $data }
         if [== $pointer "/"] { return $data }
@@ -100,7 +67,8 @@ namespace Flux {
         }
 
         var node $data
-        let segments [List::slice [String::split $pointer "/"] 1 -1]
+        let parts [String::split $pointer "/"]
+        let segments [List::slice $parts 1 [len $parts]]
 
         foreach raw $segments {
             ;; Unescape ~1 -> / and ~0 -> ~
@@ -126,11 +94,6 @@ namespace Flux {
         return $node
     }
 
-    ;; ============================================================================
-    ;; HTTP Signatures (RFC 9421)
-    ;; ============================================================================
-
-    ;; Parse a URL into components: scheme, authority, path, query
     proc _parse_url {url} {
         var scheme {}
         var authority {}
@@ -166,7 +129,6 @@ namespace Flux {
         return [dict scheme $scheme authority $authority path $path query $query]
     }
 
-    ;; Helper: build request-target from url parts
     proc _build_request_target {url_parts} {
         let p [get $url_parts path]
         let q [get $url_parts query]
@@ -178,7 +140,6 @@ namespace Flux {
         return $p
     }
 
-    ;; Helper: build content-digest header value
     proc _build_content_digest {body} {
         if [empty? $body] { return {} }
 
@@ -187,7 +148,6 @@ namespace Flux {
         return [String::join ({sha-256=:} $hash {:}) {}]
     }
 
-    ;; Helper: get header value from headers dict
     proc _get_header_value {headers_dict component} {
         let lower_component [String::lower $component]
 
@@ -198,8 +158,6 @@ namespace Flux {
         return {}
     }
 
-    ;; Build the signature base string per RFC 9421
-    ;; covered_components is a list of strings like "@method" "@authority" "content-type"
     proc _build_signature_base {verb url headers_dict body covered_components sig_params} {
         var lines [list]
         let url_parts [_parse_url $url]
@@ -285,53 +243,49 @@ namespace Flux {
         return $new_headers
     }
 
-    ;; ============================================================================
-    ;; HTTP Request Execution
-    ;; ============================================================================
-
     proc _execute_request {verb url request_config on_event_callback} {
-        if [not $_curl_init] {
-            curl::init
-            set! _curl_init 1
-        }
-
-        if [not $c] {
-            set! c [curl::new]
-        }
+        ;; curl::init wraps curl_global_init which is idempotent — safe to
+        ;; call per request. The handle from curl::new is an opaque value;
+        ;; its destructor (curl_easy_cleanup + slist/callback teardown)
+        ;; runs automatically when refcount hits 0 at proc exit, including
+        ;; on the error path. No shared mutable state between requests.
+        curl::init
+        let c [curl::new]
 
         curl::set_url $c $url
         curl::set_verb $c $verb
 
-        ;; Get body first (needed for signature computation)
+        ;; HEAD needs CURLOPT_NOBODY=1 in addition to the custom verb,
+        ;; otherwise curl reads the body the server (incorrectly) sends
+        ;; and trips CURLE_PARTIAL_FILE on the Content-Length mismatch.
+        if [== $verb "HEAD"] {
+            curl::set_nobody $c 1
+        }
+
         var body {}
 
         if [has? $request_config body] {
             set! body [get $request_config body]
         }
 
-        ;; Get headers
         var headers_list [list]
 
         if [has? $request_config headers] {
             set! headers_list [get $request_config headers]
         }
 
-        ;; Apply HTTP signature if configured (modifies headers_list)
         if [has? $request_config http_signature] {
             set! headers_list [_apply_http_signature $verb $url $headers_list $body [get $request_config http_signature]]
         }
 
-        ;; Apply headers to curl
         foreach h $headers_list {
             curl::set_header $c $h
         }
 
-        ;; Apply body
         if [not [empty? $body]] {
             curl::set_body $c $body
         }
 
-        ;; Apply options
         if [has? $request_config options] {
             let opts [get $request_config options]
 
@@ -368,13 +322,37 @@ namespace Flux {
             }
         }
 
-        ;; Capture response body (for non-SSE requests) or set up SSE callback
         var response_body {}
+        var captured_headers #{}
+
+        ;; Parse each response-header line and accumulate into captured_headers
+        ;; as { lowercase_name -> [list value ...] }. A status line (starting
+        ;; with "HTTP/") resets the dict so that on followed redirects only the
+        ;; final response's headers survive.
+        curl::set_header_callback $c [lambda {line} {
+            let trimmed [String::trim $line]
+            if [empty? $trimmed] {
+            } else {
+                if [== [String::find $trimmed "HTTP/"] 0] {
+                    set! captured_headers #{}
+                } else {
+                    let colon_idx [String::find $trimmed ":"]
+                    if [>= $colon_idx 0] {
+                        let name [String::trim [String::range $trimmed 0 $colon_idx]]
+                        let value [String::trim [String::range $trimmed [+ $colon_idx 1] [String::length $trimmed]]]
+                        let key [String::lower $name]
+                        var existing [list]
+                        if [has? $captured_headers $key] {
+                            set! existing [get $captured_headers $key]
+                        }
+                        set! captured_headers [put $captured_headers $key [List::push $existing $value]]
+                    }
+                }
+            }
+        }]
 
         if [not [empty? $on_event_callback]] {
-            ;; SSE mode: set up SSE callback to process streaming events
             curl::set_sse_callback $c [lambda {event} {
-                ;; Make event data available for the callback
                 var data {}
                 var event_type {}
                 var id {}
@@ -396,174 +374,87 @@ namespace Flux {
                     set! retry [get $event retry]
                 }
 
-                ;; Execute the user's callback with event in scope
                 eval $on_event_callback
             }]
         } else {
-            ;; Regular mode: capture full response body
             curl::set_write_callback $c [lambda {chunk} {
                 set! response_body "$response_body$chunk"
             }]
         }
 
-        ;; Perform the request
-        ;; Catch errors so we can distinguish timeouts from real failures
         var perform_failed 0
+
         if [catch {curl::perform $c} _result _err] {
             set! perform_failed 1
         }
 
-        ;; Check error status using new curl functions
         let is_timeout [curl::is_timeout $c]
         let error_code [curl::get_last_error $c]
         let error_string [curl::error_string $c]
 
-        ;; For SSE streams, timeouts are expected behavior
-        ;; For regular requests, non-timeout errors should propagate
         if [and $perform_failed [not $is_timeout]] {
             if [empty? $on_event_callback] {
-                ;; Regular request with a real error - throw it
                 error "curl request failed: $error_string"
             }
             ;; SSE with non-timeout error - we'll report it in the response
         }
 
-        ;; Gather response info
         let status_code [curl::get_response_code $c]
         let content_type [curl::get_content_type $c]
         let effective_url [curl::get_effective_url $c]
         let total_time [curl::get_total_time $c]
 
-        var headers #{}
+        var headers $captured_headers
 
-        if [not [empty? $content_type]] {
+        ;; Belt-and-suspenders: if the header callback didn't see content-type
+        ;; (e.g. some transport edge case), backfill from libcurl's reported
+        ;; value so $content_type and $headers stay consistent.
+        if [and [not [empty? $content_type]] [not [has? $headers "content-type"]]] {
             set! headers [put $headers "content-type" [list $content_type]]
         }
 
         var parsed_json {}
 
         if [>= [String::find $content_type "application/json"] 0] {
-            if [catch {JSON::decode $response_body} result _err] {
+            if [catch {json::decode $response_body} result _err] {
                 ;; JSON parse failed, leave parsed_json empty
             } else {
                 set! parsed_json $result
             }
         }
 
-        ;; Build response dict with error info
         var response #{
             status_code $status_code
             body $response_body
-            json $parsed_json
+            body_json $parsed_json
             headers $headers
             content_type $content_type
             effective_url $effective_url
             total_time $total_time
             error_code $error_code
+            error_message {}
             is_timeout $is_timeout
+            ok [== $error_code 0]
         }
 
-        ;; Add error string only if there was an error
         if [!= $error_code 0] {
-            set! response [put $response error $error_string]
+            set! response [put $response error_message $error_string]
         }
-
-        curl::reset $c
 
         return $response
     }
 
-    ;; ============================================================================
-    ;; DSL: Request Builder
-    ;; ============================================================================
-
-    ;; Internal: build request from DSL block
     proc _build_request {syntax_body} {
         var config #{headers () options #{}}
         var on_response_callback {}
         var on_event_callback {}
 
-        ;; Define DSL commands that will be available in the block
-        proc headers {hds} {
-            let lines [String::split $hds "\n"]
+        ;; The DSL verbs (header/body/timeout_ms/etc.) are top-level macros
+        ;; that expand into `set! config [put ...]` writes against this
+        ;; frame's locals — see the bottom of this file. http_signature
+        ;; remains a proc because its sub-DSL (key_id, algorithm, name,
+        ;; cover, ...) uses names too generic to safely globalize.
 
-            foreach line $lines {
-                let trimmed [String::trim $line]
-
-                if [not [empty? $trimmed]] {
-                    let current [get $config headers]
-                    set! config [put $config headers [List::push $current $trimmed]]
-                }
-            }
-        }
-
-        proc header {h} {
-            let current [get $config headers]
-            set! config [put $config headers [List::push $current $h]]
-        }
-
-        proc body {b} {
-            set! config [put $config body $b]
-        }
-
-        proc timeout_ms {ms} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts timeout_ms $ms]]
-        }
-
-        proc connection_timeout_ms {ms} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts connection_timeout_ms $ms]]
-        }
-
-        proc accept_timeout_ms {ms} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts accept_timeout_ms $ms]]
-        }
-
-        proc verbose {v} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts verbose $v]]
-        }
-
-        proc follow_redirects {v} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts follow_location $v]]
-        }
-
-        proc ssl_verify {peer host} {
-            let opts [get $config options]
-            set! opts [put $opts ssl_verify_peer $peer]
-            set! opts [put $opts ssl_verify_host $host]
-            set! config [put $config options $opts]
-        }
-
-        proc ssl_verify_peer {peer} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts ssl_verify_peer $peer]]
-        }
-
-        proc user_agent {ua} {
-            let opts [get $config options]
-            set! config [put $config options [put $opts user_agent $ua]]
-        }
-
-        proc on_response {callback_body} {
-            set! on_response_callback $callback_body
-        }
-
-        ;; SSE event callback
-        ;; The callback receives an 'event' variable which is a dict with keys:
-        ;;   data  - the event data (string)
-        ;;   event - the event type (string, defaults to "message")
-        ;;   id    - the event id (string, optional)
-        ;;   retry - the retry timeout in ms (string, optional)
-        proc on_event {callback_body} {
-            set! on_event_callback $callback_body
-        }
-
-        ;; HTTP Signature configuration block
-        ;; Usage: http_signature { key_id "mykey" algorithm "hmac-sha256" ... }
         proc http_signature {sig_body} {
             var sig_config [dict name "sig" covered_components [list]]
 
@@ -576,7 +467,7 @@ namespace Flux {
             }
 
             proc key_file {path} {
-                let pem [File::read $path]
+                let pem [io::read_file $path]
                 set! sig_config [put $sig_config key_pem $pem]
             }
 
@@ -597,7 +488,6 @@ namespace Flux {
             set! config [put $config http_signature $sig_config]
         }
 
-        ;; Execute the syntax body to collect configuration
         eval $syntax_body
 
         return #{
@@ -607,7 +497,6 @@ namespace Flux {
         }
     }
 
-    ;; Create HTTP verb command
     proc _make_request {verb url syntax_body} {
         let built [_build_request $syntax_body]
         let config [get $built config]
@@ -617,91 +506,38 @@ namespace Flux {
         let response [_execute_request $verb $url $config $on_event_cb]
 
         if [not [empty? $on_response_cb]] {
-            ;; Bind response variables for the callback
-            let status_code [get $response status_code]
-            let body [get $response body]
-            let json [get $response json]
-            let headers [get $response headers]
-            let content_type [get $response content_type]
-            let effective_url [get $response effective_url]
-            let total_time [get $response total_time]
+            ;; Magic vars in on_response scope. Also: $response (whole dict).
+            let status_code    [get $response status_code]
+            let body           [get $response body]
+            let body_json      [get $response body_json]
+            let headers        [get $response headers]
+            let content_type   [get $response content_type]
+            let effective_url  [get $response effective_url]
+            let total_time     [get $response total_time]
+            let is_timeout     [get $response is_timeout]
+            let error_code     [get $response error_code]
+            let error_message  [get $response error_message]
+            let ok             [get $response ok]
 
-            ;; Error info (useful for SSE streams)
-            let is_timeout [get $response is_timeout]
-            let error_code [get $response error_code]
-            var response_error {}
-
-            if [has? $response error] {
-                set! response_error [get $response error]
-            }
-
-            proc assert_status {val} {
-                assert [== $status_code $val] "Expected status code $val but got $status_code"
-            }
-
-            ;; Execute the callback - it has access to all the above via closure
             eval $on_response_cb
         }
 
         return $response
     }
 
-    ;; HTTP verb commands
-    proc GET {url (syntax_body {})} {
-        let result [_make_request "GET" $url $syntax_body]
-        return $result
-    }
-
-    proc POST {url (syntax_body {})} {
-        let result [_make_request "POST" $url $syntax_body]
-        return $result
-    }
-
-    proc PUT {url (syntax_body {})} {
-        let result [_make_request "PUT" $url $syntax_body]
-        return $result
-    }
-
-    proc DELETE {url (syntax_body {})} {
-        let result [_make_request "DELETE" $url $syntax_body]
-        return $result
-    }
-
-    proc PATCH {url (syntax_body {})} {
-        let result [_make_request "PATCH" $url $syntax_body]
-        return $result
-    }
-
-    proc OPTIONS {url (syntax_body {})} {
-        let result [_make_request "OPTIONS" $url $syntax_body]
-        return $result
-    }
-
-    proc HEAD {url (syntax_body {})} {
-        let result [_make_request "HEAD" $url $syntax_body]
-        return $result
-    }
-
-    ;; ============================================================================
-    ;; Test Organization: Suite and Case
-    ;; ============================================================================
-
     proc Suite {name suite_body} {
-        ;; Save current state
         let prev_cases $_current_cases
+        let prev_suite $_current_suite
         set! _current_cases ()
         set! _current_suite $name
 
-        ;; Execute suite body to collect cases
         eval $suite_body
 
-        ;; Store the suite
         let suite #{name $name cases $_current_cases}
         set! _suites [List::push $_suites $suite]
 
-        ;; Restore state
         set! _current_cases $prev_cases
-        set! _current_suite {}
+        set! _current_suite $prev_suite
     }
 
     proc Case {name case_body} {
@@ -709,45 +545,38 @@ namespace Flux {
         set! _current_cases [List::push $_current_cases $case_def]
     }
 
-    ;; ============================================================================
-    ;; Test Execution
-    ;; ============================================================================
-
-    ;; ============================================================================
-    ;; Output Formatting Utilities
-    ;; ============================================================================
-
-    ;; Format microseconds as human-readable time
     proc _format_time_us {us} {
         if [< $us 1000] {
-            return "${us}µs"
+            return "${us}us"
         }
         if [< $us 1000000] {
             let ms [int [/ $us 1000]]
             return "${ms}ms"
         }
         let ms [int [/ $us 1000]]
-        let secs_dec [int [/ $ms 1000]]
-        let secs_frac [int [% $ms 1000]]
-        return "${secs_dec}.${secs_frac}s"
+        let secs [int [/ $ms 1000]]
+        let frac [int [% $ms 1000]]
+        if [< $frac 10]  { return "${secs}.00${frac}s" }
+        if [< $frac 100] { return "${secs}.0${frac}s" }
+        return "${secs}.${frac}s"
     }
 
-    ;; Format microseconds as seconds (for JUnit XML)
     proc _format_time_seconds {us} {
         let ms [int [/ $us 1000]]
         let secs [int [/ $ms 1000]]
         let frac [int [% $ms 1000]]
-        ;; Pad fraction to 3 digits
+
         if [< $frac 10] {
             return "${secs}.00${frac}"
         }
+
         if [< $frac 100] {
             return "${secs}.0${frac}"
         }
+
         return "${secs}.${frac}"
     }
 
-    ;; Escape XML special characters
     proc _xml_escape {str} {
         var result $str
         set! result [String::replace $result "&" "&amp;"]
@@ -758,12 +587,6 @@ namespace Flux {
         return $result
     }
 
-    ;; ============================================================================
-    ;; Output Emitters
-    ;; ============================================================================
-
-    ;; Human-readable output emitter
-    ;; results: #{suites (...) total N passed N failed N time_us N}
     proc _emit_human {results} {
         let suites [get $results suites]
         let total [get $results total]
@@ -799,7 +622,7 @@ namespace Flux {
 
             let suite_time_str [Flux::_format_time_us $suite_time]
             puts "  Suite time: $suite_time_str"
-            puts ""
+             puts ""
         }
 
         let total_time_str [Flux::_format_time_us $time_us]
@@ -817,8 +640,6 @@ namespace Flux {
         }
     }
 
-    ;; JUnit XML output emitter
-    ;; results: #{suites (...) total N passed N failed N time_us N}
     proc _emit_junit {results} {
         let suites [get $results suites]
         let total [get $results total]
@@ -835,7 +656,6 @@ namespace Flux {
             let suite_time [get $suite time_us]
             let suite_time_secs [Flux::_format_time_seconds $suite_time]
 
-            ;; Count suite stats
             var suite_tests 0
             var suite_failures 0
             foreach c $cases {
@@ -869,13 +689,24 @@ namespace Flux {
         puts "</testsuites>"
     }
 
-    ;; ============================================================================
-    ;; Test Execution
-    ;; ============================================================================
-
     proc run {} {
+        ;; Idempotent: the user file may end with an explicit `Flux::run` AND
+        ;; the C entry point also invokes us via `interpreter_execute`. The
+        ;; first call drains _suites; subsequent calls find it empty and
+        ;; return without emitting anything.
+        if [empty? $_suites] {
+            return #{suites () total 0 passed 0 failed 0 time_us 0}
+        }
+
         set! _failed 0
         set! _results ()
+
+        ;; CLI options (bound by the C entry point as $_flux_cli_opts) take
+        ;; precedence over in-file Flux::configure calls — `--junit` should
+        ;; override whatever the test file said.
+        foreach k [Dict::keys $_flux_cli_opts] {
+            Flux::configure $k [get $_flux_cli_opts $k]
+        }
 
         let stop_on_failure [get $_config stop_on_failure]
         let output_format [get $_config output_format]
@@ -886,26 +717,23 @@ namespace Flux {
         var suite_results ()
 
         ;; Timing metrics
-        let run_start [time::clock]
+        let run_start [time::monotonic_us]
 
         foreach suite $_suites {
             let suite_name [get $suite name]
             let cases [get $suite cases]
-            let suite_start [time::clock]
+            let suite_start [time::monotonic_us]
             var case_results ()
-            var should_break 0
 
             foreach case_def $cases {
                 let case_name [get $case_def name]
                 let case_body [get $case_def body]
-                let case_start [time::clock]
+                let case_start [time::monotonic_us]
 
                 set! total_cases [+ $total_cases 1]
 
-                ;; Try to run the case
-                if [catch { namespace Flux { eval $case_body } } _result _err] {
-                    ;; Test failed
-                    let case_end [time::clock]
+                if [catch { isolate { eval $case_body } } _result _err] {
+                    let case_end [time::monotonic_us]
                     let case_time [- $case_end $case_start]
 
                     set! failed_cases [+ $failed_cases 1]
@@ -916,12 +744,10 @@ namespace Flux {
                     set! _results [List::push $_results $result]
 
                     if $stop_on_failure {
-                        set! should_break 1
                         break
                     }
                 } else {
-                    ;; Test passed
-                    let case_end [time::clock]
+                    let case_end [time::monotonic_us]
                     let case_time [- $case_end $case_start]
 
                     set! passed_cases [+ $passed_cases 1]
@@ -932,8 +758,7 @@ namespace Flux {
                 }
             }
 
-            ;; Suite timing
-            let suite_end [time::clock]
+            let suite_end [time::monotonic_us]
             let suite_time [- $suite_end $suite_start]
 
             let suite_result #{name $suite_name cases $case_results time_us $suite_time}
@@ -944,11 +769,9 @@ namespace Flux {
             }
         }
 
-        ;; Overall timing
-        let run_end [time::clock]
+        let run_end [time::monotonic_us]
         let total_time [- $run_end $run_start]
 
-        ;; Build final results structure
         let results #{
             suites $suite_results
             total $total_cases
@@ -957,24 +780,271 @@ namespace Flux {
             time_us $total_time
         }
 
-        ;; Emit output based on format
         if [== $output_format "junit"] {
             Flux::_emit_junit $results
         } else {
             Flux::_emit_human $results
         }
 
+        ;; Drain so the implicit second invocation from interpreter_execute
+        ;; becomes a silent no-op (see the empty-_suites short-circuit above).
+        set! _suites ()
+
         return $results
     }
 
-    ;; Configure Flux behavior
     proc configure {option value} {
         set! _config [put $_config $option $value]
     }
+}
 
-    ;; For simpler scripts that don't use Suite/Case, just run directly
-    proc run_simple {} {
-        ;; No-op, requests execute immediately
-        puts "Flux: All requests completed."
+
+proc GET {url (syntax_body {})} {
+    let result [Flux::_make_request "GET" $url $syntax_body]
+    return $result
+}
+
+proc POST {url (syntax_body {})} {
+    let result [Flux::_make_request "POST" $url $syntax_body]
+    return $result
+}
+
+proc PUT {url (syntax_body {})} {
+    let result [Flux::_make_request "PUT" $url $syntax_body]
+    return $result
+}
+
+proc DELETE {url (syntax_body {})} {
+    let result [Flux::_make_request "DELETE" $url $syntax_body]
+    return $result
+}
+
+proc PATCH {url (syntax_body {})} {
+    let result [Flux::_make_request "PATCH" $url $syntax_body]
+    return $result
+}
+
+proc OPTIONS {url (syntax_body {})} {
+    let result [Flux::_make_request "OPTIONS" $url $syntax_body]
+    return $result
+}
+
+proc HEAD {url (syntax_body {})} {
+    let result [Flux::_make_request "HEAD" $url $syntax_body]
+    return $result
+}
+
+
+;; ===========================================================================
+;; Request-DSL macros — header, body, timeout_ms, on_response, etc.
+;;
+;; These expand inside _build_request's frame (the body of GET/POST/etc.'s
+;; `{ ... }` argument is eval'd there), so they write directly to that
+;; frame's `config`, `on_response_callback`, `on_event_callback` locals
+;; without per-call closure allocations.
+;; ===========================================================================
+
+macro header {h} {
+    quasiquote {
+        set! config [put $config headers [List::push [get $config headers] {,$h}]]
+    }
+}
+
+macro headers {hds} {
+    let line [gensym _hdr_line]
+    let trimmed [gensym _hdr_trimmed]
+    quasiquote {
+        foreach ,$line [String::split {,$hds} "\n"] {
+            let ,$trimmed [String::trim $,$line]
+            if [not [empty? $,$trimmed]] {
+                set! config [put $config headers [List::push [get $config headers] $,$trimmed]]
+            }
+        }
+    }
+}
+
+macro body {b} {
+    quasiquote { set! config [put $config body {,$b}] }
+}
+
+macro timeout_ms {ms} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] timeout_ms {,$ms}]]
+    }
+}
+
+macro connection_timeout_ms {ms} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] connection_timeout_ms {,$ms}]]
+    }
+}
+
+macro accept_timeout_ms {ms} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] accept_timeout_ms {,$ms}]]
+    }
+}
+
+macro verbose {v} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] verbose {,$v}]]
+    }
+}
+
+macro follow_redirects {v} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] follow_location {,$v}]]
+    }
+}
+
+macro ssl_verify {peer host} {
+    let opts [gensym _ssl_opts]
+    quasiquote {
+        let ,$opts [get $config options]
+        set! ,$opts [put $,$opts ssl_verify_peer {,$peer}]
+        set! ,$opts [put $,$opts ssl_verify_host {,$host}]
+        set! config [put $config options $,$opts]
+    }
+}
+
+macro ssl_verify_peer {peer} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] ssl_verify_peer {,$peer}]]
+    }
+}
+
+macro user_agent {ua} {
+    quasiquote {
+        set! config [put $config options [put [get $config options] user_agent {,$ua}]]
+    }
+}
+
+macro on_response {callback_body} {
+    quasiquote { set! on_response_callback {,$callback_body} }
+}
+
+;; SSE event callback. The body is evaluated once per event with magic
+;; vars: $data, $event_type, $id, $retry.
+macro on_event {callback_body} {
+    quasiquote { set! on_event_callback {,$callback_body} }
+}
+
+
+;; ===========================================================================
+;; Assertion macros (top-level, expand in caller's frame so they read the
+;; on_response magic vars — $status_code, $headers, $body, $body_json,
+;; $is_timeout, $error_code, $error_message — without the caller passing
+;; them).
+;;
+;; Quasiquote splices have a subtle rule: `,$arg` inserts the macro arg's
+;; *value bytes* into the template. For values that may contain whitespace
+;; (HTTP bodies, header names, JSON expected values) we wrap with `{,$arg}`
+;; so the value lands as a single token. The braces are inert when the slot
+;; expects a value (integers, strings, even lists — `{200 201 202}` is
+;; accepted by `List::any?` as a list).
+;;
+;; Error messages are built with `[String::join (...) ""]` because commas
+;; inside "..." are literal during quasiquote (Lcl spec §7b note).
+;; ===========================================================================
+
+;; Status code equals $expected.
+macro assert_status {expected} {
+    quasiquote {
+        if [!= $status_code {,$expected}] {
+            error [String::join ("assert_status: expected " {,$expected} " but got " $status_code) ""]
+        }
+    }
+}
+
+;; Status code is one of the values in $expected_list (a list).
+;;   assert_status_in (200 201 202)
+;;   assert_status_in $allowed
+macro assert_status_in {expected_list} {
+    let l [gensym _allowed]
+    quasiquote {
+        let ,$l [list ,@$expected_list]
+        if [not [List::any? [lambda {_s} {== $_s $status_code}] $,$l]] {
+            error [String::join ("assert_status_in: status " $status_code " not in " $,$l) ""]
+        }
+    }
+}
+
+;; $haystack contains $needle as a substring.
+macro assert_contains {haystack needle} {
+    quasiquote {
+        if [< [String::find {,$haystack} {,$needle}] 0] {
+            error [String::join ("assert_contains: body does not contain <" {,$needle} ">") ""]
+        }
+    }
+}
+
+;; $string matches POSIX regex $pattern (anywhere in the string).
+macro assert_match {pattern string} {
+    quasiquote {
+        if [not [regex::match {,$pattern} {,$string}]] {
+            error [String::join ("assert_match: body does not match /" {,$pattern} "/") ""]
+        }
+    }
+}
+
+;; Header $name is present in $headers (case-insensitive).
+macro assert_header {name} {
+    quasiquote {
+        if [not [has? $headers [String::lower {,$name}]]] {
+            error [String::join ("assert_header: header <" {,$name} "> not in response") ""]
+        }
+    }
+}
+
+;; Header $name is present in $headers and its first value equals $expected.
+macro assert_header_eq {name expected} {
+    let k [gensym _hkey]
+    let a [gensym _hactual]
+    quasiquote {
+        let ,$k [String::lower {,$name}]
+        if [not [has? $headers $,$k]] {
+            error [String::join ("assert_header_eq: header <" {,$name} "> not in response") ""]
+        }
+        let ,$a [get [get $headers $,$k] 0]
+        if [!= $,$a {,$expected}] {
+            error [String::join ("assert_header_eq: header <" {,$name} ">: expected <" {,$expected} "> got <" $,$a ">") ""]
+        }
+    }
+}
+
+;; The JSON pointer $pointer (RFC 6901) resolves in $body_json and equals
+;; $expected (deep equality).
+macro assert_json {pointer expected} {
+    let a [gensym _jactual]
+    quasiquote {
+        let ,$a [Flux::json_at $body_json {,$pointer}]
+        if [!= $,$a {,$expected}] {
+            error [String::join ("assert_json: at " {,$pointer} ": expected <" {,$expected} "> got <" $,$a ">") ""]
+        }
+    }
+}
+
+;; The JSON pointer $pointer resolves to a value in $body_json (any value;
+;; just checks the path exists). Wraps Flux::json_at in catch so a missing
+;; path errors with the assertion's message rather than json_at's raw error.
+macro assert_json_has {pointer} {
+    quasiquote {
+        if [catch {Flux::json_at $body_json {,$pointer}} _r _e] {
+            error [String::join ("assert_json_has: pointer " {,$pointer} " not found in body_json") ""]
+        }
+    }
+}
+
+;; The request reached the server without a transport error: not a timeout
+;; and curl returned a zero error code. Useful for SSE tests, where curl
+;; surfaces termination via the response dict rather than throwing.
+macro assert_response_ok {} {
+    quasiquote {
+        if $is_timeout {
+            error "assert_response_ok: request timed out"
+        }
+        if [not $ok] {
+            error [String::join ("assert_response_ok: error_code " $error_code ": " $error_message) ""]
+        }
     }
 }

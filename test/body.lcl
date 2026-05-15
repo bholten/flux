@@ -1,0 +1,40 @@
+;; Request body handling — JSON and plain text bodies, content-type
+;; round-trip, multi-line body.
+
+let base "http://localhost:8080"
+
+Flux::Suite "Request body" {
+    Flux::Case "JSON body echoes back as parsed dict" {
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"name":"Alice","age":30}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/name" "Alice"
+                assert_json "/request/body/age" 30
+            }
+        }
+    }
+
+    Flux::Case "nested JSON body" {
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"user":{"id":42,"tags":["a","b"]}}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/user/id" 42
+                assert_json "/request/body/user/tags/0" "a"
+                assert_json "/request/body/user/tags/1" "b"
+            }
+        }
+    }
+
+    Flux::Case "POST with no body still succeeds" {
+        POST "$base/" {
+            on_response {
+                assert_status 200
+                assert_json "/http/method" "POST"
+            }
+        }
+    }
+}

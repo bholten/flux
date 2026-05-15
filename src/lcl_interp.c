@@ -8,6 +8,7 @@
 #include <lcl-curl.h>
 #include <lcl-io.h>
 #include <lcl-json.h>
+#include <lcl-regex.h>
 #include <lcl-time.h>
 // clang-format on
 
@@ -19,7 +20,6 @@ static const lcl_embedded_lib flux_lib = {"lib/flux.lcl", lib_flux_lcl,
 
 struct interpreter {
   lcl_interp *interp;
-  char *script_path;
 };
 
 static void print_lcl_error(lcl_interp *interp) {
@@ -54,6 +54,7 @@ interpreter *interpreter_new(void) {
   lcl_register_curl(lcl);
   lcl_register_crypto(lcl);
   lcl_register_time(lcl);
+  lcl_register_regex(lcl);
 
   if (lcl_register_embedded_lib(lcl, &flux_lib) != 0) {
     fprintf(stderr, "Warning: Flux library could not be loaded\n");
@@ -71,15 +72,42 @@ void interpreter_delete(interpreter *interp) {
     lcl_interp_free(interp->interp);
   }
 
-  free(interp->script_path);
   free(interp);
 }
 
-interp_result interpreter_setup_environment(interpreter *interp, int argc,
-                                            const char **argv) {
-  (void)interp;
-  (void)argc;
-  (void)argv;
+interp_result interpreter_bind_cli_opts(interpreter *interp,
+                                        const char *output_format) {
+  if (!interp) {
+    return INTERP_ERR;
+  }
+
+  lcl_value *opts = lcl_dict_new();
+
+  if (!opts) {
+    return INTERP_ERR;
+  }
+
+  if (output_format) {
+    lcl_value *fmt = lcl_string_new(output_format);
+
+    if (!fmt) {
+      lcl_ref_dec(opts);
+      return INTERP_ERR;
+    }
+
+    if (lcl_dict_put(&opts, "output_format", fmt) != LCL_OK) {
+      lcl_ref_dec(fmt);
+      lcl_ref_dec(opts);
+      return INTERP_ERR;
+    }
+
+    lcl_ref_dec(fmt);
+  }
+
+  if (lcl_define_take(interp->interp, "_flux_cli_opts", opts) != LCL_OK) {
+    return INTERP_ERR;
+  }
+
   return INTERP_OK;
 }
 
@@ -107,44 +135,16 @@ interp_result interpreter_eval_file(interpreter *interp, const char *filename) {
     return INTERP_ERR;
   }
 
-  FILE *f = fopen(filename, "r");
-
-  if (!f) {
-    fprintf(stderr, "[flux] could not open %s\n", filename);
-    return INTERP_ERR;
-  }
-
-  fseek(f, 0, SEEK_END);
-  long len = ftell(f);
-  fseek(f, 0, SEEK_SET);
-
-  char *script = malloc(len + 1);
-
-  if (!script) {
-    fclose(f);
-    return INTERP_ERR;
-  }
-
-  size_t read_len = fread(script, 1, len, f);
-  fclose(f);
-  script[read_len] = '\0';
-
   lcl_value *result = NULL;
 
-  if (lcl_eval_string(interp->interp, script, &result) != LCL_RC_OK) {
-    fprintf(stderr, "[flux] error evaluating %s\n", filename);
+  if (lcl_eval_file(interp->interp, filename, &result) != LCL_RC_OK) {
     print_lcl_error(interp->interp);
-    free(script);
     return INTERP_ERR;
   }
 
   if (result) {
     lcl_ref_dec(result);
   }
-
-  free(script);
-  free(interp->script_path);
-  interp->script_path = strdup(filename);
 
   return INTERP_OK;
 }

@@ -1,7 +1,7 @@
 ;; Example 5: Working with JSON Responses
 ;;
 ;; When the response Content-Type is application/json, Flux automatically
-;; parses the body and makes it available as $json. Use `get` to access fields.
+;; parses the body and makes it available as $body_json. Use `get` to access fields.
 ;;
 ;; Run with: ./build/flux examples/05_json_response.lcl
 
@@ -12,7 +12,7 @@ Flux::Suite "JSON Response Handling" {
                 assert_status 200
 
                 ;; Use get for top-level fields
-                let url [get $json url]
+                let url [get $body_json url]
 
                 assert [== $url https://httpbin.org/get]
             }
@@ -24,7 +24,7 @@ Flux::Suite "JSON Response Handling" {
             on_response {
                 assert_status 200
                 ;; Navigate nested structures with multiple get calls
-                let slideshow [get $json "slideshow"]
+                let slideshow [get $body_json "slideshow"]
                 let title     [get $slideshow "title"]
 
                 assert [== $title "Sample Slide Show"]

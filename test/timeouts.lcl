@@ -1,0 +1,29 @@
+;; Exercise timeout_ms — echo-server delays responses with ?echo_time=N
+;; (milliseconds). A timeout shorter than the delay should set
+;; $is_timeout; a longer timeout should succeed.
+
+let base "http://localhost:8080"
+
+Flux::Suite "Request timeouts" {
+    Flux::Case "timeout fires when server is too slow" {
+        GET "$base/?echo_time=2000" {
+            timeout_ms 200
+            on_response {
+                ;; Either is_timeout is set, or the request returned
+                ;; an error_code. Either way, ok should be 0 or status
+                ;; should be unset.
+                assert $is_timeout
+            }
+        }
+    }
+
+    Flux::Case "request completes when timeout > delay" {
+        GET "$base/?echo_time=100" {
+            timeout_ms 5000
+            on_response {
+                assert_status 200
+                assert_response_ok
+            }
+        }
+    }
+}

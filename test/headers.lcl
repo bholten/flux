@@ -1,0 +1,54 @@
+;; Headers — single and multi-header forms, case-insensitive lookup,
+;; arbitrary header capture (full §2m response-headers dict).
+
+let base "http://localhost:8080"
+
+Flux::Suite "Request headers" {
+    Flux::Case "single header reaches the server" {
+        GET "$base/" {
+            header "X-Flux-Test: hello"
+            on_response {
+                assert_status 200
+                ;; echo-server lowercases header keys in its echo dict
+                assert_json "/request/headers/x-flux-test" "hello"
+            }
+        }
+    }
+
+    Flux::Case "multi-header block reaches the server" {
+        GET "$base/" {
+            headers {
+                X-Test-One: alpha
+                X-Test-Two: beta
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/x-test-one" "alpha"
+                assert_json "/request/headers/x-test-two" "beta"
+            }
+        }
+    }
+}
+
+Flux::Suite "Response headers" {
+    Flux::Case "Content-Type captured" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                assert_header "Content-Type"
+                ;; echo-server returns application/json; charset=utf-8
+                assert [>= [String::find $content_type "application/json"] 0]
+            }
+        }
+    }
+
+    Flux::Case "case-insensitive lookup" {
+        GET "$base/" {
+            on_response {
+                assert_status 200
+                assert_header "content-type"
+                assert_header "CONTENT-TYPE"
+            }
+        }
+    }
+}

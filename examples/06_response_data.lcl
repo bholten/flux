@@ -1,13 +1,18 @@
 ;; Example 6: Response Data Variables
 ;;
 ;; The on_response callback has access to these response variables:
-;; - $status_code: HTTP status code (integer)
-;; - $body: Raw response body (string)
-;; - $json: Parsed JSON (dict, if Content-Type is application/json)
-;; - $headers: Response headers (dict)
-;; - $content_type: Content-Type header value
+;; - $status_code:   HTTP status code (integer)
+;; - $body:          Raw response body (string)
+;; - $body_json:     Parsed JSON (dict, if Content-Type is application/json)
+;; - $headers:       Response headers (dict)
+;; - $content_type:  Content-Type header value
 ;; - $effective_url: Final URL after redirects
-;; - $total_time: Request duration in seconds
+;; - $total_time:    Request duration in seconds
+;; - $is_timeout:    1 if the request timed out
+;; - $error_code:    libcurl error code (0 if no transport error)
+;; - $error_message: libcurl error string (empty if no transport error)
+;; - $ok:            1 when $error_code == 0
+;; - $response:      The whole response dict (all fields above + others)
 ;;
 ;; Run with: ./build/flux examples/06_response_data.lcl
 
@@ -34,7 +39,7 @@ Flux::Suite "Response Data Variables" {
             on_response {
                 assert_status 200
                 
-                let url [get $json url]
+                let url [get $body_json url]
 
                 assert [== $url https://httpbin.org/get]
             }

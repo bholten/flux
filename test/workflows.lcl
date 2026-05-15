@@ -1,0 +1,42 @@
+;; Exercise the Flux::cache memoization API and the workflow-procs-
+;; return-values pattern (the recommended cross-Case state sharing).
+
+let base "http://localhost:8080"
+
+;; A workflow proc that hits the API on first call and caches the
+;; result on subsequent calls. Returns the parsed `http` sub-dict from
+;; the echo response — using a dict rather than a bare string keeps us
+;; out of Lcl's one-word-program command-dispatch path for `eval $m`
+;; when the cached value happens to match a proc name.
+namespace flow {
+    proc get_http_info {} {
+        Flux::cache "flow:http" {
+            var info {}
+            GET "http://localhost:8080/" {
+                on_response {
+                    assert_status 200
+                    set! info [get $body_json "http"]
+                }
+            }
+            $info
+        }
+    }
+}
+
+Flux::Suite "Workflow memoization" {
+    Flux::Case "first call hits the API" {
+        let h [flow::get_http_info]
+        assert [== [get $h "method"] "GET"]
+    }
+
+    Flux::Case "second call returns cached value" {
+        let h [flow::get_http_info]
+        assert [== [get $h "method"] "GET"]
+        assert [Flux::cache_has? "flow:http"]
+    }
+
+    Flux::Case "cache_clear empties the store" {
+        Flux::cache_clear
+        assert [not [Flux::cache_has? "flow:http"]]
+    }
+}

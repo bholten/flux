@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    name: build + ctest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            libcurl4-openssl-dev \
+            libssl-dev
+
+      - name: Start echo-server
+        run: docker compose up -d
+
+      - name: Wait for echo-server
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/ >/dev/null; then
+              echo "echo-server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "echo-server did not become ready in 30s"
+          docker compose logs
+          exit 1
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run ctest
+        run: ctest --test-dir build --output-on-failure --parallel 8
+
+      - name: Tear down echo-server
+        if: always()
+        run: docker compose down

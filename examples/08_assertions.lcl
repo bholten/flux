@@ -1,50 +1,77 @@
 ;; Example 8: Available Assertions
 ;;
-;; Flux provides several assertion functions for validating responses:
-;; - Flux::assert_eq {actual} {expected}        - Assert equality
-;; - Flux::assert_neq {actual} {expected}       - Assert not equal
-;; - Flux::contains? {haystack} {needle}        - Assert string contains substring
-;; - Flux::header_exists? {headers} {name}      - Assert header exists
-;; - Flux::header_eq? {headers} {name} {expected} - Assert header value
+;; Flux provides a small vocabulary of assertion macros that capture the
+;; on_response magic vars ($status_code, $body, $body_json, $headers, etc.)
+;; directly — you call them without passing those values in.
+;;
+;;   assert_status N              - $status_code == N
+;;   assert_status_in (200 201)   - $status_code is in the list
+;;   assert_contains H N          - String H contains substring N
+;;   assert_match PAT S           - POSIX regex PAT matches string S
+;;   assert_header NAME           - Header NAME present (case-insensitive)
+;;   assert_header_eq NAME VALUE  - Header NAME present and equals VALUE
+;;   assert_json POINTER VALUE    - JSON pointer in $body_json equals VALUE
+;;   assert_json_has POINTER      - JSON pointer in $body_json resolves
+;;   assert_response_ok           - No timeout, no transport error (SSE)
+;;
+;; The bare Lcl `assert COND` is still available for one-off conditions
+;; the vocabulary doesn't cover.
 ;;
 ;; Run with: ./build/flux examples/08_assertions.lcl
 
 Flux::Suite "Assertions" {
-    Flux::Case "equality assertions" {
+    Flux::Case "status macros" {
         GET https://httpbin.org/status/201 {
             on_response {
-                assert [== $status_code 201]
-                assert [!= $status_code 200]
+                assert_status 201
+                assert_status_in (200 201 202)
             }
         }
     }
 
-    Flux::Case "string contains" {
+    Flux::Case "string contains and regex match" {
         GET https://httpbin.org/html {
             on_response {
-                assert [== $status_code 200]
+                assert_status 200
                 assert_contains $body "<html>"
                 assert_contains $body "Herman Melville"
+                assert_match "Moby.Dick" $body
             }
         }
     }
 
-    Flux::Case "custom assertions" {
+    Flux::Case "header macros" {
+        ;; httpbin's /response-headers endpoint echoes query params back as
+        ;; response headers — handy for testing arbitrary header capture.
+        GET https://httpbin.org/response-headers?X-Flux-Test=hello&X-Number=42 {
+            on_response {
+                assert_status 200
+                ;; Headers are looked up case-insensitively.
+                assert_header "Content-Type"
+                assert_header_eq "Content-Type" "application/json"
+                assert_header "X-Flux-Test"
+                assert_header_eq "X-Flux-Test" "hello"
+                assert_header_eq "X-Number" "42"
+            }
+        }
+    }
+
+    Flux::Case "json pointer macros" {
         GET https://httpbin.org/get {
             on_response {
-                ;; Assert with direct condition
-                if [!= $status_code 200] { error "Expected 200" }
-                if [<= [String::length $body] 0] { error "Expected non-empty body" }
+                assert_status 200
+                assert_json_has "/url"
+                assert_json "/url" "https://httpbin.org/get"
             }
         }
     }
 
-    Flux::Case "header assertions" {
-        GET https://httpbin.org/response-headers?X-Test=hello {
+    Flux::Case "response-ok and bare assert" {
+        GET https://httpbin.org/get {
             on_response {
-                assert [== $status_code 200]
-                ;; Note: headers are lowercase in the headers dict
-                assert_header_exists $headers "content-type"
+                assert_response_ok
+                ;; Bare assert for ad-hoc conditions
+                assert [> [String::length $body] 0]
             }
         }
     }

@@ -9,8 +9,8 @@ Flux::Suite "User API" {
             header "Authorization: Bearer $token"
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::contains $body "users"
+                assert_status 200
+                assert_contains $body "users"
             }
         }
     }
@@ -23,7 +23,7 @@ Flux::run
 
 - **Declarative syntax** - Tests read like documentation
 - **All HTTP methods** - GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD
-- **JSON support** - Automatic parsing, easy field access with `$json`
+- **JSON support** - Automatic parsing, easy field access with `$body_json`
 - **HTTP Signatures** - RFC 9421 support (HMAC, RSA-PSS, ECDSA)
 - **SSE streaming** - Server-Sent Events with `on_event` callback
 - **Reusable workflows** - Encapsulate complex API patterns in functions
@@ -51,7 +51,7 @@ cmake --build build
 ```tcl
 GET https://httpbin.org/get {
     on_response {
-        Flux::eq $status_code 200
+        assert_status 200
         puts "Response: $body"
     }
 }
@@ -65,8 +65,8 @@ POST https://httpbin.org/post {
     body {{"name": "Alice", "email": "alice@example.com"}}
 
     on_response {
-        Flux::eq $status_code 200
-        puts "Created user: [get $json data]"
+        assert_status 200
+        puts "Created user: [get $body_json data]"
     }
 }
 ```
@@ -80,8 +80,8 @@ Flux::Suite "Authentication" {
             body {{"email": "user@test.com", "password": "secret"}}
 
             on_response {
-                Flux::eq $status_code 200
-                Flux::assert [has? $json "token"]
+                assert_status 200
+                assert_json_has "/token"
             }
         }
     }
@@ -91,7 +91,7 @@ Flux::Suite "Authentication" {
             body {{"email": "user@test.com", "password": "wrong"}}
 
             on_response {
-                Flux::eq $status_code 401
+                assert_status 401
             }
         }
     }
@@ -128,115 +128,141 @@ GET https://api.example.com/resource {
     ;; Response handler
     on_response {
         ;; Available variables:
-        ;; $status_code - HTTP status code
-        ;; $body        - Response body as string
-        ;; $json        - Parsed JSON (if content-type is application/json)
-        ;; $headers     - Response headers dict
+        ;; $status_code    - HTTP status code
+        ;; $body           - Response body as string
+        ;; $body_json      - Parsed JSON (if content-type is application/json)
+        ;; $headers        - Response headers dict
+        ;; $content_type   - Content-Type header value
+        ;; $effective_url  - Final URL after redirects
+        ;; $total_time     - Request duration in seconds
+        ;; $is_timeout     - 1 if the request timed out
+        ;; $error_code     - libcurl error code (0 if no transport error)
+        ;; $error_message  - libcurl error string (empty if no transport error)
+        ;; $ok             - 1 when $error_code == 0
+        ;; $response       - The whole response dict
     }
 }
 ```
 
 ## Assertions
 
+A small vocabulary of bare-name macros that expand in the caller's frame
+and read the `on_response` magic vars directly. You don't pass
+`$status_code` / `$headers` / `$body` / `$body_json` — the macros pick
+them up.
+
 ```tcl
 on_response {
-    ;; Equality
-    Flux::eq $status_code 200
-    Flux::ne $status_code 500
+    ;; Status code
+    assert_status 200
+    assert_status_in (200 201 202)
 
-    ;; String contains
-    Flux::contains $body "success"
+    ;; Strings (against $body)
+    assert_contains $body "success"
+    assert_match "user-\\d+" $body              ;; POSIX regex
 
-    ;; Headers
-    Flux::header_exists $headers "content-type"
-    Flux::header_eq $headers "content-type" "application/json"
+    ;; Headers (against $headers; case-insensitive)
+    assert_header "Content-Type"
+    assert_header_eq "Content-Type" "application/json"
 
-    ;; JSON pointer (RFC 6901)
-    let user_name [Flux::json_at $json "/data/user/name"]
+    ;; JSON (against $body_json; RFC 6901 pointer)
+    assert_json_has "/data/user/id"
+    assert_json "/data/user/name" "Alice"
 
-    ;; Generic assertions
-    Flux::assert [> [len $body] 0]
-    Flux::assert_msg [has? $json "id"] "Response must have id field"
+    ;; Transport-level OK (mainly useful for SSE — the regular request
+    ;; path already throws on transport failure)
+    assert_response_ok
+
+    ;; Bare `assert` stays available for ad-hoc conditions
+    assert [> [String::length $body] 0]
 }
 ```
 
 ## Sharing State Between Tests
 
-```tcl
-Flux::Suite "API Workflow" {
-    Flux::Case "login" {
-        POST https://api.example.com/login {
-            body {{"email": "test@example.com", "password": "secret"}}
+Each `Flux::Case` runs in an isolated def-target frame, so a bare `let` in a
+case body stays local. The recommended way to share data across cases is a
+workflow proc that internally memoizes — test code calls the proc and gets a
+value back, without knowing whether the call hit the API or returned a
+cached result.
 
-            on_response {
-                Flux::eq $status_code 200
-                ;; Export token for later tests
-                Flux::export "auth_token" [get $json "token"]
+```tcl
+namespace auth {
+    proc token {} {
+        ;; Body runs once per key. Subsequent calls return the cached value.
+        Flux::cache "auth:default" {
+            var t {}
+            POST https://api.example.com/login {
+                body {{"email": "test@example.com", "password": "secret"}}
+                on_response {
+                    assert_status 200
+                    set! t [get $body_json "token"]
+                }
             }
+            $t                ;; last expression IS the cached value
         }
     }
+}
 
+Flux::Suite "API Workflow" {
     Flux::Case "access protected resource" {
-        ;; Import token from previous test
-        let token [Flux::import "auth_token"]
+        let token [auth::token]
 
         GET https://api.example.com/profile {
             header "Authorization: Bearer $token"
-
-            on_response {
-                Flux::eq $status_code 200
-            }
+            on_response { assert_status 200 }
         }
     }
 }
 ```
 
+Low-level primitives are available when the macro shape doesn't fit:
+
+```tcl
+Flux::cache_set "key" $value
+let v [Flux::cache_get "key"]
+if [Flux::cache_has? "key"] { ... }
+Flux::cache_clear                  ;; drop all cached values
+```
+
 ## Reusable Workflows
 
-Create a workflow library to encapsulate complex patterns:
+Pull workflow procs into a separate file when they're shared across suites:
 
 ```tcl
 ;; lib/workflows.lcl
-
-proc auth::login {email password} {
-    let cache_key "auth:$email"
-    if [Flux::has_export $cache_key] {
-        return [Flux::import $cache_key]
-    }
-
-    var result [dict]
-
-    POST https://api.example.com/login {
-        body [subst {{"email": "$email", "password": "$password"}}]
-
-        on_response {
-            Flux::eq $status_code 200
-            set! result [dict \
-                token [get $json "token"] \
-                user_id [get $json "user_id"]]
+namespace auth {
+    proc login {email password} {
+        Flux::cache "auth:$email" {
+            var result #{}
+            POST https://api.example.com/login {
+                body [subst {{"email": "$email", "password": "$password"}}]
+                on_response {
+                    assert_status 200
+                    set! result #{
+                        token [get $body_json "token"]
+                        user_id [get $body_json "user_id"]
+                    }
+                }
+            }
+            $result
         }
     }
-
-    Flux::export $cache_key $result
-    return $result
 }
 ```
 
 Use it in tests:
 
 ```tcl
-load lib/workflows.lcl
+require lib/workflows.lcl
 
 Flux::Suite "Dashboard" {
     Flux::Case "user can view dashboard" {
-        let auth [auth::login "user@example.com" "password"]
+        let _auth [auth::login "user@example.com" "password"]
 
         GET https://api.example.com/dashboard {
-            header "Authorization: Bearer [get $auth token]"
-
-            on_response {
-                Flux::eq $status_code 200
-            }
+            header "Authorization: Bearer [get $_auth token]"
+            on_response { assert_status 200 }
         }
     }
 }
@@ -261,7 +287,7 @@ POST https://api.example.com/signed-endpoint {
     }
 
     on_response {
-        Flux::eq $status_code 200
+        assert_status 200
     }
 }
 ```
@@ -303,6 +329,24 @@ Flux::configure stop_on_failure 0
 Flux::run
 ```
 
+## Running the Tests
+
+The `test/` directory holds the deterministic test suite — `.lcl` files
+that run against the bundled `docker-compose.yaml` echo server. They're
+distinct from `examples/`, which exercise real-world endpoints
+(httpbin, Wikipedia, etc.) and exist primarily as documentation.
+
+```bash
+docker compose up -d                    # start ealen/echo-server on :8080
+cmake -B build && cmake --build build
+ctest --test-dir build --output-on-failure -j 8
+docker compose down                     # tear down when finished
+```
+
+Each `test/*.lcl` becomes one `ctest` case (`flux_<name>`); ctest runs
+them in parallel under `-j N`. CI (GitHub Actions, `.github/workflows/ci.yml`)
+does the same on every push/PR.
+
 ## Examples
 
 See the `examples/` directory:
@@ -316,7 +360,7 @@ See the `examples/` directory:
 | `08_assertions.lcl` | All assertion types |
 | `10_http_signatures.lcl` | RFC 9421 signatures |
 | `11_sse_streaming.lcl` | Server-Sent Events |
-| `12_state_export.lcl` | State sharing |
+| `12_workflow_cache.lcl` | Workflow memoization with `Flux::cache` |
 | `13_reusable_workflows.lcl` | Workflow libraries |
 
 ## LCL Language Basics

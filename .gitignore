@@ -1,3 +1,16 @@
-compile_commands.json
+# Build trees
 build/
+build-*/
+
+# Editor / tooling caches
+compile_commands.json
+.cache/
+.vscode/
+.idea/
+
+# Generated DSL headers (produced by CMake from lib/flux.lcl)
 src/dsl.h
+src/generated/
+
+# Dagwood task outputs (from examples/Dag)
+examples/.out/

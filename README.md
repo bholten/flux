@@ -32,8 +32,8 @@ Flux::run
 ## Installation
 
 ```bash
-# Clone with submodules
-git clone --recursive https://github.com/user/flux.git
+# Clone
+git clone https://github.com/bholten/flux.git
 cd flux
 
 # Build

@@ -13,7 +13,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(FLUX_COMPILE_OPTIONS -Wall -Wextra -D_POSIX_C_SOURCE=200809L)
 
-# LCL submodule configuration
+# Lcl dependency (fetched at configure time).
 set(LCL_BUILD_CURL ON CACHE BOOL "Build LCL CURL extension for Flux" FORCE)
 set(LCL_BUILD_IO ON CACHE BOOL "Build LCL IO extension for Flux" FORCE)
 set(LCL_BUILD_JSON ON CACHE BOOL "Build LCL JSON extension for Flux" FORCE)
@@ -23,7 +23,13 @@ set(LCL_BUILD_REGEX ON CACHE BOOL "Build Lcl regex extension" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
 
-add_subdirectory(submodules/lcl)
+include(FetchContent)
+FetchContent_Declare(
+  lcl
+  GIT_REPOSITORY https://github.com/bholten/lcl.git
+  GIT_TAG        c1ef73daa6a2a2dab8f36823fe9027527e274542
+)
+FetchContent_MakeAvailable(lcl)
 
 if(FLUX_ENABLE_ASAN)
   list(APPEND FLUX_COMPILE_OPTIONS -fsanitize=address,undefined -fno-omit-frame-pointer)
@@ -64,13 +70,6 @@ target_compile_options(flux PRIVATE ${FLUX_COMPILE_OPTIONS})
 target_include_directories(flux PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-io/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-curl/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-json/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-crypto/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-time/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/submodules/lcl/packages/lcl-regex/include
 )
 
 target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time lcl_regex)

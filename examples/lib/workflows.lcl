@@ -83,11 +83,10 @@ namespace posts {
             on_response {
                 if [== $status_code 201] {
                     set! created 1
-                    set! result [dict \
-                        id [get $body_json "id"] \
-                        title [get $body_json "title"] \
-                        body [get $body_json "body"] \
-                        userId [get $body_json "userId"]]
+                    set! result #{id [get $json "id"]
+                                  title [get $json "title"]
+                                  body [get $json "body"]
+                                  userId [get $json "userId"]}
                 }
             }
         }
@@ -109,7 +108,7 @@ namespace posts {
             on_response {
                 if [== $status_code 200] {
                     set! found 1
-                    set! result $body_json
+                    set! result $json
                 }
             }
         }

@@ -12,7 +12,7 @@ Flux::Suite "JSON Response Handling" {
                 assert_status 200
 
                 ;; Use get for top-level fields
-                let url [get $body_json url]
+                let url [get $json url]
 
                 assert [== $url https://httpbin.org/get]
             }
@@ -24,7 +24,7 @@ Flux::Suite "JSON Response Handling" {
             on_response {
                 assert_status 200
                 ;; Navigate nested structures with multiple get calls
-                let slideshow [get $body_json "slideshow"]
+                let slideshow [get $json "slideshow"]
                 let title     [get $slideshow "title"]
 
                 assert [== $title "Sample Slide Show"]

@@ -9,11 +9,7 @@
 ;;
 ;; Run with: flux 13_reusable_workflows.lcl
 
-;; Pull in the workflow library. `require` evaluates the file once in an
-;; isolated frame and lifts only its namespaces (auth, posts, setup) — no
-;; loose top-level lets leak into this test. Path is relative to the
-;; project root, so run from there: ./build/flux examples/13_reusable_workflows.lcl
-require examples/lib/workflows.lcl
+require lib/workflows.lcl
 
 ;; ============================================================================
 ;; Tests are now clean and declarative

@@ -27,7 +27,7 @@ include(FetchContent)
 FetchContent_Declare(
   lcl
   GIT_REPOSITORY https://github.com/bholten/lcl.git
-  GIT_TAG        6b0b09537a20516103363a05c9cf37c8aa7734d4
+  GIT_TAG        8da8c0d253c0f9c02e6240c1a680bcbd2fa3ee3a
 )
 FetchContent_MakeAvailable(lcl)
 

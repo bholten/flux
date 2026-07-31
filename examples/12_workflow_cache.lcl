@@ -32,8 +32,8 @@ namespace post_workflow {
                 on_response {
                     assert_status 201
                     set! result #{
-                        id [get $body_json "id"]
-                        title [get $body_json "title"]
+                        id [get $json "id"]
+                        title [get $json "title"]
                     }
                 }
             }

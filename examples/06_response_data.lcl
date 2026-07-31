@@ -39,7 +39,7 @@ Flux::Suite "Response Data Variables" {
             on_response {
                 assert_status 200
                 
-                let url [get $body_json url]
+                let url [get $json url]
 
                 assert [== $url https://httpbin.org/get]
             }

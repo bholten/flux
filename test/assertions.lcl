@@ -43,7 +43,7 @@ Flux::Suite "Assertions" {
             on_response {
                 assert_status 200
                 assert [> [String::length $body] 0]
-                assert [not [empty? $body_json]]
+                assert [not [empty? $json]]
             }
         }
     }

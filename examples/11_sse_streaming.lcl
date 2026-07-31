@@ -41,7 +41,6 @@ Flux::Suite "SSE Streaming" {
             }
 
             on_response {
-                puts "Stream ended after $event_count events"
                 assert_status 200
                 ;; A timeout is the expected end state — the stream
                 ;; doesn't close itself, we let it run for timeout_ms.

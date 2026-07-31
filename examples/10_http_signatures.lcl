@@ -66,7 +66,6 @@ Flux::Suite "HTTP Signatures" {
                 assert_status 200
                 assert_contains $body "Signature-Input"
                 assert_contains $body "Signature"
-                puts "HMAC signature headers were sent successfully"
             }
         }
     }
@@ -84,7 +83,6 @@ Flux::Suite "HTTP Signatures" {
                 assert_status 200
                 assert_contains $body "Signature-Input"
                 assert_contains $body "Signature"
-                puts "RSA-PSS signature headers were sent successfully"
             }
         }
     }
@@ -108,7 +106,6 @@ Flux::Suite "HTTP Signatures" {
                 assert_contains $body "Signature-Input"
                 assert_contains $body "x-acme-request-id"
                 assert_contains $body "x-acme-timestamp"
-                puts "Custom headers included in signature successfully"
             }
         }
     }

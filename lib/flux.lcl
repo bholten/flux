@@ -1,5 +1,4 @@
-;; Flux - HTTP Testing Framework DSL
-
+;;; Flux - HTTP Testing Framework DSL
 namespace Flux {
     var _config #{stop_on_failure 0 output_format "human"}
 
@@ -19,30 +18,34 @@ namespace Flux {
         var _store #{}
     }
 
+    ;;; Set a value in the Flux cache. Used for setting values across test cases within a single harness; for example, reusing a generated auth token.
     proc cache_set {name value} {
-        set! Flux::State::_store [put $Flux::State::_store $name $value]
+        set! Flux::State::_store [put ${Flux::State::_store} $name $value]
     }
 
+    ;; Get a value in the Flux cache. Used for getting values across test cses within a single harness; for example, reusing a generated auth token.
     proc cache_get {name} {
-        if [has? $Flux::State::_store $name] {
-            return [get $Flux::State::_store $name]
+        if [has? ${Flux::State::_store} $name] {
+            return [get ${Flux::State::_store} $name]
         }
 
         error "Flux::cache_get: no value cached under '$name'"
     }
 
+    ;; Check if a value is in the Flux cache.
     proc cache_has? {name} {
-        has? $Flux::State::_store $name
+        has? ${Flux::State::_store} $name
     }
 
+    ;; Clear the Flux cache.
     proc cache_clear {} {
         set! Flux::State::_store [dict]
     }
 
-    ;; Memoize a block under a key. Body runs in the caller's frame on a
-    ;; cache miss; on a hit, returns the cached value without re-running.
-    ;; Convention: the body's last expression IS the cached value — `return`
-    ;; would unwind the enclosing user proc and bypass cache_set.
+    ;;; Memoize a block under a key. Body runs in the caller's frame on a
+    ;;; cache miss; on a hit, returns the cached value without re-running.
+    ;;; Convention: the body's last expression IS the cached value — `return`
+    ;;; would unwind the enclosing user proc and bypass cache_set.
     macro cache {key body} {
         let k [gensym _cache_key]
         let v [gensym _cache_val]
@@ -58,6 +61,7 @@ namespace Flux {
         }
     }
 
+    ;;; JSON pointer.
     proc json_at {data pointer} {
         if [== $pointer ""] { return $data }
         if [== $pointer "/"] { return $data }
@@ -143,7 +147,7 @@ namespace Flux {
     proc _build_content_digest {body} {
         if [empty? $body] { return {} }
 
-        let hash [crypto::sha256 $body]
+        let hash [Crypto::sha256 $body]
 
         return [String::join ({sha-256=:} $hash {:}) {}]
     }
@@ -197,7 +201,7 @@ namespace Flux {
     }
 
     proc _get_unix_time {} {
-        let ts [time::time]
+        let ts [Time::time]
         return $ts
     }
 
@@ -224,14 +228,14 @@ namespace Flux {
         let sig_base [_build_signature_base $verb $url $headers_dict $body $covered $sig_params]
 
         let signature [case $algorithm
-                       {hmac-sha256}       [crypto::hmac $key_pem $sig_base sha256]
-                       {rsa-pss-sha256}    [crypto::sign_rsa_pss $key_pem $sig_base sha256]
-                       {rsa-pss-sha512}    [crypto::sign_rsa_pss $key_pem $sig_base sha512]
-                       {ecdsa-p256-sha256} [crypto::sign_ecdsa $key_pem $sig_base p256]
-                       {ecdsa-p384-sha384} [crypto::sign_ecdsa $key_pem $sig_base p384]
+                       {hmac-sha256}       [Crypto::hmac $key_pem $sig_base sha256]
+                       {rsa-pss-sha256}    [Crypto::sign_rsa_pss $key_pem $sig_base sha256]
+                       {rsa-pss-sha512}    [Crypto::sign_rsa_pss $key_pem $sig_base sha512]
+                       {ecdsa-p256-sha256} [Crypto::sign_ecdsa $key_pem $sig_base p256]
+                       {ecdsa-p384-sha384} [Crypto::sign_ecdsa $key_pem $sig_base p384]
                        else [error "Unsupported signature algorithm: $algorithm"]]
 
-        let sig_b64 [crypto::base64_encode $signature]
+        let sig_b64 [Crypto::base64_encode $signature]
         var new_headers $headers_list
 
         let sig_input_hdr [String::join ({Signature-Input: } $sig_name {=} $sig_params) {}]
@@ -244,22 +248,22 @@ namespace Flux {
     }
 
     proc _execute_request {verb url request_config on_event_callback} {
-        ;; curl::init wraps curl_global_init which is idempotent — safe to
-        ;; call per request. The handle from curl::new is an opaque value;
+        ;; Curl::init wraps curl_global_init which is idempotent — safe to
+        ;; call per request. The handle from Curl::new is an opaque value;
         ;; its destructor (curl_easy_cleanup + slist/callback teardown)
         ;; runs automatically when refcount hits 0 at proc exit, including
         ;; on the error path. No shared mutable state between requests.
-        curl::init
-        let c [curl::new]
+        Curl::init
+        let c [Curl::new]
 
-        curl::set_url $c $url
-        curl::set_verb $c $verb
+        Curl::set_url $c $url
+        Curl::set_verb $c $verb
 
         ;; HEAD needs CURLOPT_NOBODY=1 in addition to the custom verb,
         ;; otherwise curl reads the body the server (incorrectly) sends
         ;; and trips CURLE_PARTIAL_FILE on the Content-Length mismatch.
         if [== $verb "HEAD"] {
-            curl::set_nobody $c 1
+            Curl::set_nobody $c 1
         }
 
         var body {}
@@ -279,46 +283,46 @@ namespace Flux {
         }
 
         foreach h $headers_list {
-            curl::set_header $c $h
+            Curl::set_header $c $h
         }
 
         if [not [empty? $body]] {
-            curl::set_body $c $body
+            Curl::set_body $c $body
         }
 
         if [has? $request_config options] {
             let opts [get $request_config options]
 
             if [has? $opts timeout_ms] {
-                curl::set_timeout_ms $c [get $opts timeout_ms]
+                Curl::set_timeout_ms $c [get $opts timeout_ms]
             }
 
             if [has? $opts connection_timeout_ms] {
-                curl::set_connection_timeout_ms $c [get $opts connection_timeout_ms]
+                Curl::set_connection_timeout_ms $c [get $opts connection_timeout_ms]
             }
 
             if [has? $opts accept_timeout_ms] {
-                curl::set_accept_timeout_ms $c [get $opts accept_timeout_ms]
+                Curl::set_accept_timeout_ms $c [get $opts accept_timeout_ms]
             }
 
             if [has? $opts verbose] {
-                curl::set_verbose $c [get $opts verbose]
+                Curl::set_verbose $c [get $opts verbose]
             }
 
             if [has? $opts follow_location] {
-                curl::set_follow_location $c [get $opts follow_location]
+                Curl::set_follow_location $c [get $opts follow_location]
             }
 
             if [has? $opts ssl_verify_peer] {
-                curl::set_ssl_verify_peer $c [get $opts ssl_verify_peer]
+                Curl::set_ssl_verify_peer $c [get $opts ssl_verify_peer]
             }
 
             if [has? $opts ssl_verify_host] {
-                curl::set_ssl_verify_host $c [get $opts ssl_verify_host]
+                Curl::set_ssl_verify_host $c [get $opts ssl_verify_host]
             }
 
             if [has? $opts user_agent] {
-                curl::set_user_agent $c [get $opts user_agent]
+                Curl::set_user_agent $c [get $opts user_agent]
             }
         }
 
@@ -329,7 +333,7 @@ namespace Flux {
         ;; as { lowercase_name -> [list value ...] }. A status line (starting
         ;; with "HTTP/") resets the dict so that on followed redirects only the
         ;; final response's headers survive.
-        curl::set_header_callback $c [lambda {line} {
+        Curl::set_header_callback $c [lambda {line} {
             let trimmed [String::trim $line]
             if [empty? $trimmed] {
             } else {
@@ -352,7 +356,7 @@ namespace Flux {
         }]
 
         if [not [empty? $on_event_callback]] {
-            curl::set_sse_callback $c [lambda {event} {
+            Curl::set_sse_callback $c [lambda {event} {
                 var data {}
                 var event_type {}
                 var id {}
@@ -377,20 +381,20 @@ namespace Flux {
                 eval $on_event_callback
             }]
         } else {
-            curl::set_write_callback $c [lambda {chunk} {
+            Curl::set_write_callback $c [lambda {chunk} {
                 set! response_body "$response_body$chunk"
             }]
         }
 
         var perform_failed 0
 
-        if [catch {curl::perform $c} _result _err] {
+        if [catch {Curl::perform $c} _result _err] {
             set! perform_failed 1
         }
 
-        let is_timeout [curl::is_timeout $c]
-        let error_code [curl::get_last_error $c]
-        let error_string [curl::error_string $c]
+        let is_timeout [Curl::is_timeout $c]
+        let error_code [Curl::get_last_error $c]
+        let error_string [Curl::error_string $c]
 
         if [and $perform_failed [not $is_timeout]] {
             if [empty? $on_event_callback] {
@@ -399,10 +403,10 @@ namespace Flux {
             ;; SSE with non-timeout error - we'll report it in the response
         }
 
-        let status_code [curl::get_response_code $c]
-        let content_type [curl::get_content_type $c]
-        let effective_url [curl::get_effective_url $c]
-        let total_time [curl::get_total_time $c]
+        let status_code [Curl::get_response_code $c]
+        let content_type [Curl::get_content_type $c]
+        let effective_url [Curl::get_effective_url $c]
+        let total_time [Curl::get_total_time $c]
 
         var headers $captured_headers
 
@@ -416,7 +420,7 @@ namespace Flux {
         var parsed_json {}
 
         if [>= [String::find $content_type "application/json"] 0] {
-            if [catch {json::decode $response_body} result _err] {
+            if [catch {Json::decode $response_body} result _err] {
                 ;; JSON parse failed, leave parsed_json empty
             } else {
                 set! parsed_json $result
@@ -426,7 +430,7 @@ namespace Flux {
         var response #{
             status_code $status_code
             body $response_body
-            body_json $parsed_json
+            json $parsed_json
             headers $headers
             content_type $content_type
             effective_url $effective_url
@@ -467,7 +471,7 @@ namespace Flux {
             }
 
             proc key_file {path} {
-                let pem [io::read_file $path]
+                let pem [Io::read_file $path]
                 set! sig_config [put $sig_config key_pem $pem]
             }
 
@@ -509,7 +513,7 @@ namespace Flux {
             ;; Magic vars in on_response scope. Also: $response (whole dict).
             let status_code    [get $response status_code]
             let body           [get $response body]
-            let body_json      [get $response body_json]
+            let json           [get $response json]
             let headers        [get $response headers]
             let content_type   [get $response content_type]
             let effective_url  [get $response effective_url]
@@ -525,6 +529,7 @@ namespace Flux {
         return $response
     }
 
+    ;;; Starts a Flux::Suite block with name and body.
     proc Suite {name suite_body} {
         let prev_cases $_current_cases
         let prev_suite $_current_suite
@@ -540,6 +545,7 @@ namespace Flux {
         set! _current_suite $prev_suite
     }
 
+    ;;; Starts a Flux::Case within a suite.
     proc Case {name case_body} {
         let case_def #{name $name body $case_body}
         set! _current_cases [List::push $_current_cases $case_def]
@@ -689,6 +695,7 @@ namespace Flux {
         puts "</testsuites>"
     }
 
+    ;;; Run the accumulated Flux suites.
     proc run {} {
         ;; Idempotent: the user file may end with an explicit `Flux::run` AND
         ;; the C entry point also invokes us via `interpreter_execute`. The
@@ -701,11 +708,12 @@ namespace Flux {
         set! _failed 0
         set! _results ()
 
-        ;; CLI options (bound by the C entry point as $_flux_cli_opts) take
-        ;; precedence over in-file Flux::configure calls — `--junit` should
-        ;; override whatever the test file said.
-        foreach k [Dict::keys $_flux_cli_opts] {
-            Flux::configure $k [get $_flux_cli_opts $k]
+        ;; CLI options (bound at the top level by the C entry point, after
+        ;; this library loads — hence the live ::-reference) take precedence
+        ;; over in-file Flux::configure calls — `--junit` should override
+        ;; whatever the test file said.
+        foreach k [Dict::keys ${::_flux_cli_opts}] {
+            Flux::configure $k [get ${::_flux_cli_opts} $k]
         }
 
         let stop_on_failure [get $_config stop_on_failure]
@@ -717,23 +725,23 @@ namespace Flux {
         var suite_results ()
 
         ;; Timing metrics
-        let run_start [time::monotonic_us]
+        let run_start [Time::monotonic_us]
 
         foreach suite $_suites {
             let suite_name [get $suite name]
             let cases [get $suite cases]
-            let suite_start [time::monotonic_us]
+            let suite_start [Time::monotonic_us]
             var case_results ()
 
             foreach case_def $cases {
                 let case_name [get $case_def name]
                 let case_body [get $case_def body]
-                let case_start [time::monotonic_us]
+                let case_start [Time::monotonic_us]
 
                 set! total_cases [+ $total_cases 1]
 
                 if [catch { isolate { eval $case_body } } _result _err] {
-                    let case_end [time::monotonic_us]
+                    let case_end [Time::monotonic_us]
                     let case_time [- $case_end $case_start]
 
                     set! failed_cases [+ $failed_cases 1]
@@ -747,7 +755,7 @@ namespace Flux {
                         break
                     }
                 } else {
-                    let case_end [time::monotonic_us]
+                    let case_end [Time::monotonic_us]
                     let case_time [- $case_end $case_start]
 
                     set! passed_cases [+ $passed_cases 1]
@@ -758,7 +766,7 @@ namespace Flux {
                 }
             }
 
-            let suite_end [time::monotonic_us]
+            let suite_end [Time::monotonic_us]
             let suite_time [- $suite_end $suite_start]
 
             let suite_result #{name $suite_name cases $case_results time_us $suite_time}
@@ -769,7 +777,7 @@ namespace Flux {
             }
         }
 
-        let run_end [time::monotonic_us]
+        let run_end [Time::monotonic_us]
         let total_time [- $run_end $run_start]
 
         let results #{
@@ -932,7 +940,7 @@ macro on_event {callback_body} {
 
 ;; ===========================================================================
 ;; Assertion macros (top-level, expand in caller's frame so they read the
-;; on_response magic vars — $status_code, $headers, $body, $body_json,
+;; on_response magic vars — $status_code, $headers, $body, $json,
 ;; $is_timeout, $error_code, $error_message — without the caller passing
 ;; them).
 ;;
@@ -963,7 +971,7 @@ macro assert_status_in {expected_list} {
     let l [gensym _allowed]
     quasiquote {
         let ,$l [list ,@$expected_list]
-        if [not [List::any? [lambda {_s} {== $_s $status_code}] $,$l]] {
+        if [not [List::any? $,$l [lambda {_s} {== $_s $status_code}]]] {
             error [String::join ("assert_status_in: status " $status_code " not in " $,$l) ""]
         }
     }
@@ -981,7 +989,7 @@ macro assert_contains {haystack needle} {
 ;; $string matches POSIX regex $pattern (anywhere in the string).
 macro assert_match {pattern string} {
     quasiquote {
-        if [not [regex::match {,$pattern} {,$string}]] {
+        if [not [Regex::match {,$pattern} {,$string}]] {
             error [String::join ("assert_match: body does not match /" {,$pattern} "/") ""]
         }
     }
@@ -1012,25 +1020,25 @@ macro assert_header_eq {name expected} {
     }
 }
 
-;; The JSON pointer $pointer (RFC 6901) resolves in $body_json and equals
+;; The JSON pointer $pointer (RFC 6901) resolves in $json and equals
 ;; $expected (deep equality).
 macro assert_json {pointer expected} {
     let a [gensym _jactual]
     quasiquote {
-        let ,$a [Flux::json_at $body_json {,$pointer}]
+        let ,$a [Flux::json_at $json {,$pointer}]
         if [!= $,$a {,$expected}] {
             error [String::join ("assert_json: at " {,$pointer} ": expected <" {,$expected} "> got <" $,$a ">") ""]
         }
     }
 }
 
-;; The JSON pointer $pointer resolves to a value in $body_json (any value;
+;; The JSON pointer $pointer resolves to a value in $json (any value;
 ;; just checks the path exists). Wraps Flux::json_at in catch so a missing
 ;; path errors with the assertion's message rather than json_at's raw error.
 macro assert_json_has {pointer} {
     quasiquote {
-        if [catch {Flux::json_at $body_json {,$pointer}} _r _e] {
-            error [String::join ("assert_json_has: pointer " {,$pointer} " not found in body_json") ""]
+        if [catch {Flux::json_at $json {,$pointer}} _r _e] {
+            error [String::join ("assert_json_has: pointer " {,$pointer} " not found in json") ""]
         }
     }
 }

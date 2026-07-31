@@ -10,7 +10,7 @@ namespace flow {
             GET "http://localhost:8080/" {
                 on_response {
                     assert_status 200
-                    set! method [get [get $body_json "http"] "method"]
+                    set! method [get [get $json "http"] "method"]
                 }
             }
             $method

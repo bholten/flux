@@ -27,7 +27,7 @@ include(FetchContent)
 FetchContent_Declare(
   lcl
   GIT_REPOSITORY https://github.com/bholten/lcl.git
-  GIT_TAG        8da8c0d253c0f9c02e6240c1a680bcbd2fa3ee3a
+  GIT_TAG        6e1f46708cb5e2099c8eefa6bda5ce4dd3993620
 )
 FetchContent_MakeAvailable(lcl)
 
@@ -87,12 +87,14 @@ install(TARGETS flux RUNTIME DESTINATION bin)
 # file becomes one ctest case; `ctest -j` runs them in parallel.
 enable_testing()
 
+set(FLUX_TEST_ARGS_argv alpha key=value --junit)
+
 file(GLOB FLUX_TEST_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/test/*.lcl)
 foreach(test_file ${FLUX_TEST_FILES})
   get_filename_component(test_name ${test_file} NAME_WE)
   add_test(
     NAME flux_${test_name}
-    COMMAND $<TARGET_FILE:flux> ${CMAKE_CURRENT_SOURCE_DIR}/${test_file}
+    COMMAND $<TARGET_FILE:flux> ${CMAKE_CURRENT_SOURCE_DIR}/${test_file} ${FLUX_TEST_ARGS_${test_name}}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   )
 endforeach()

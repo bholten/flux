@@ -555,15 +555,19 @@ namespace Flux {
         if [< $us 1000] {
             return "${us}us"
         }
+
         if [< $us 1000000] {
             let ms [int [/ $us 1000]]
             return "${ms}ms"
         }
+
         let ms [int [/ $us 1000]]
         let secs [int [/ $ms 1000]]
         let frac [int [% $ms 1000]]
+
         if [< $frac 10]  { return "${secs}.00${frac}s" }
         if [< $frac 100] { return "${secs}.0${frac}s" }
+
         return "${secs}.${frac}s"
     }
 

@@ -329,6 +329,32 @@ Flux::configure stop_on_failure 0
 Flux::run
 ```
 
+### Script arguments
+
+Everything after the script path on the command line is handed to the
+script untouched as `$argv`, a list of strings. Flux never interprets
+it, so it is the place for per-invocation data such as a base URL or
+an environment name. Flux's own options (`--junit`) go *before* the
+path.
+
+```bash
+./build/flux test/smoke.lcl http://staging.example.com
+```
+
+```tcl
+let base [if [empty? $argv] { "http://localhost:8080" } else { get $argv 0 }]
+
+Flux::Suite "Smoke" {
+    Flux::Case "root responds" {
+        GET "$base/" { on_response { assert_status 200 } }
+    }
+}
+```
+
+The same `$argv` is bound by the `lcl` CLI, so a script reads its
+arguments the same way under either host. Environment variables are
+available through `Io::getenv`.
+
 ## Running the Tests
 
 The `test/` directory holds the deterministic test suite — `.lcl` files

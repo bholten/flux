@@ -111,6 +111,19 @@ interp_result interpreter_bind_cli_opts(interpreter *interp,
   return INTERP_OK;
 }
 
+interp_result interpreter_bind_argv(interpreter *interp, int argc,
+                                    const char *const *argv) {
+  if (!interp) {
+    return INTERP_ERR;
+  }
+
+  if (lcl_define_argv(interp->interp, argc, argv) != LCL_OK) {
+    return INTERP_ERR;
+  }
+
+  return INTERP_OK;
+}
+
 interp_result interpreter_eval(interpreter *interp, const char *script) {
   if (!interp || !script) {
     return INTERP_ERR;

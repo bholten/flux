@@ -1,0 +1,27 @@
+;; `$argv` is everything after the script path on the command line,
+;; untouched, as a list of strings. CMake passes this file
+;; `alpha key=value --junit` (see FLUX_TEST_ARGS_argv) — the trailing
+;; `--junit` proves flags *after* the path reach the script rather than
+;; being consumed as a Flux option: were it consumed, the third element
+;; would be missing and the output format would flip to JUnit.
+;;
+;; No HTTP here — this exercises the CLI → interpreter boundary only.
+
+Flux::Suite "argv" {
+    Flux::Case "argv is a three-element list" {
+        assert [== [len $argv] 3] "expected 3 args, got [len $argv]"
+    }
+
+    Flux::Case "elements arrive in order and untouched" {
+        assert [== [get $argv 0] "alpha"]
+        assert [== [get $argv 1] "key=value"]
+        assert [== [get $argv 2] "--junit"] "trailing --junit was consumed by Flux"
+    }
+
+    Flux::Case "argv is visible inside a case body without qualification" {
+        ;; Case bodies run under `isolate`; top-level globals (like a
+        ;; script's `let base ...`) are still reachable, and argv must be too.
+        let first [get $argv 0]
+        assert [== $first "alpha"]
+    }
+}

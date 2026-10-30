@@ -5,10 +5,12 @@
 #include "interpreter.h"
 
 static void print_usage(const char *prog) {
-  fprintf(stderr, "Usage: %s [OPTIONS] <file.lcl>\n", prog);
+  fprintf(stderr, "Usage: %s [OPTIONS] <file.lcl> [ARGS...]\n", prog);
   fprintf(stderr, "\nOptions:\n");
   fprintf(stderr, "  --junit     Output results in JUnit XML format\n");
   fprintf(stderr, "  --help      Show this help message\n");
+  fprintf(stderr, "\nEverything after <file.lcl> is passed to the script "
+                  "untouched as the\n`argv` list.\n");
 }
 
 int main(int argc, const char **argv) {
@@ -48,6 +50,13 @@ int main(int argc, const char **argv) {
   if (interpreter_bind_cli_opts(interp, output_junit ? "junit" : NULL) !=
       INTERP_OK) {
     fprintf(stderr, "[flux] error binding CLI options\n");
+    interpreter_delete(interp);
+    return EXIT_FAILURE;
+  }
+
+  if (interpreter_bind_argv(interp, argc - i - 1,
+                            (const char *const *)(argv + i + 1)) != INTERP_OK) {
+    fprintf(stderr, "[flux] error binding argv\n");
     interpreter_delete(interp);
     return EXIT_FAILURE;
   }

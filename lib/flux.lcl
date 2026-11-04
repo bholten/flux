@@ -867,7 +867,7 @@ macro headers {hds} {
     let trimmed [gensym _hdr_trimmed]
     quasiquote {
         foreach ,$line [String::split {,$hds} "\n"] {
-            let ,$trimmed [String::trim $,$line]
+            let ,$trimmed [subst [String::trim $,$line]]
             if [not [empty? $,$trimmed]] {
                 set! config [put $config headers [List::push [get $config headers] $,$trimmed]]
             }

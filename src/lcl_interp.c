@@ -10,6 +10,7 @@
 #include <lcl-json.h>
 #include <lcl-regex.h>
 #include <lcl-time.h>
+#include <lcl-random.h>
 // clang-format on
 
 #include "generated/flux.h"
@@ -55,6 +56,7 @@ interpreter *interpreter_new(void) {
   lcl_register_crypto(lcl);
   lcl_register_time(lcl);
   lcl_register_regex(lcl);
+  lcl_register_random(lcl);
 
   if (lcl_register_embedded_lib(lcl, &flux_lib) != 0) {
     fprintf(stderr, "Warning: Flux library could not be loaded\n");

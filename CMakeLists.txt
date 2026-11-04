@@ -19,6 +19,7 @@ set(LCL_BUILD_IO ON CACHE BOOL "Build LCL IO extension for Flux" FORCE)
 set(LCL_BUILD_JSON ON CACHE BOOL "Build LCL JSON extension for Flux" FORCE)
 set(LCL_BUILD_CRYPTO ON CACHE BOOL "Build LCL Crypto extension for Flux" FORCE)
 set(LCL_BUILD_TIME ON CACHE BOOL "Build Lcl time extension" FORCE)
+set(LCL_BUILD_RANDOM ON CACHE BOOL "Build Lcl RNG (xoshiro128**) extension" FORCE)
 set(LCL_BUILD_REGEX ON CACHE BOOL "Build Lcl regex extension" FORCE)
 set(LCL_BUILD_CLI OFF CACHE BOOL "Don't build LCL CLI" FORCE)
 set(LCL_BUILD_SHARED OFF CACHE BOOL "Don't build shared LCL" FORCE)
@@ -72,7 +73,7 @@ target_include_directories(flux PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src/generated
 )
 
-target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time lcl_regex)
+target_link_libraries(flux PRIVATE lcl_static lcl_io lcl_curl lcl_json lcl_crypto lcl_time lcl_regex lcl_random)
 
 add_dependencies(flux generate_dsl_header)
 

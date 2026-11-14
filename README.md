@@ -108,14 +108,14 @@ GET https://api.example.com/resource {
     header "Authorization: Bearer $token"
     header "Accept: application/json"
 
-    ;; Or multiple headers at once
+    ;; Or multiple headers at once. Blocks interpolate $variables.
     headers {
+        Authorization: Bearer $token
         X-Custom-Header: value
-        X-Another: value2
     }
 
-    ;; Request body (for POST, PUT, PATCH)
-    body {{"key": "value"}}
+    ;; Request body (for POST, PUT, PATCH). Also interpolates $variables.
+    body {{"key": "value", "owner": "$user_id"}}
 
     ;; Timeouts
     timeout_ms 5000
@@ -225,6 +225,46 @@ if [Flux::cache_has? "key"] { ... }
 Flux::cache_clear                  ;; drop all cached values
 ```
 
+## Interpolation in `headers` and `body`
+
+`headers { ... }` and `body { ... }` are templates. `$name` and `${name}`
+are replaced with the variable's value; nothing else is special, so JSON
+arrays and backslash escapes pass through untouched. Write `\$` for a
+literal dollar. A substituted value is inserted as text and never
+rescanned, and it is not JSON-escaped -- build structured payloads with
+`Json::encode` when values may contain quotes.
+
+```tcl
+let token [login]
+let name  "Alice"
+
+POST https://api.example.com/users {
+    headers {
+        Authorization: Bearer $token
+    }
+    body {{"name": "$name", "tags": ["a", "b"], "op": {"\$set": 1}}}
+}
+```
+
+An optional list before the block chooses what gets substituted:
+`variables`, `commands`, `backslashes` (the classes of Lcl's `subst`).
+
+```tcl
+headers (variables commands) {
+    X-Request-Id: [new_request_id]
+}
+
+;; Nothing substituted: inline text that uses `$` itself
+body () {{"query": "query($id: ID!) { user(id: $id) { name } }"}}
+
+;; Nothing substituted: a value you already built
+body () [Json::encode $payload]
+```
+
+The default applies whenever the list is omitted, including for computed
+values, so pass `()` with any value that may itself contain `$name`.
+A line break inside a header value is an error.
+
 ## Reusable Workflows
 
 Pull workflow procs into a separate file when they're shared across suites:
@@ -236,7 +276,7 @@ namespace auth {
         Flux::cache "auth:$email" {
             var result #{}
             POST https://api.example.com/login {
-                body [subst {{"email": "$email", "password": "$password"}}]
+                body {{"email": "$email", "password": "$password"}}
                 on_response {
                     assert_status 200
                     set! result #{

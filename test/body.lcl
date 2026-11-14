@@ -29,6 +29,70 @@ Flux::Suite "Request body" {
         }
     }
 
+    Flux::Case "variables are substituted into a JSON block" {
+        let name "Alice"
+        let age 30
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"name":"$name","age":${age},"tags":["a","b"],"note":"l1\nl2 \"q\""}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/name" "Alice"
+                assert_json "/request/body/age" 30
+                assert_json "/request/body/tags/1" "b"
+                assert_json "/request/body/note" "l1\nl2 \"q\""
+            }
+        }
+    }
+
+    Flux::Case "escaped dollar and substituted values stay literal" {
+        let tricky {[error boom] $nope}
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body {{"\$set":{"price":"$5","v":"$tricky"}}}
+            on_response {
+                assert_status 200
+                assert_json {/request/body/$set/price} {$5}
+                assert_json {/request/body/$set/v} {[error boom] $nope}
+            }
+        }
+    }
+
+    Flux::Case "empty class list sends an inline block untouched" {
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body () {{"query":"query($id: ID!) { user(id: $id) { name } }"}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/query" {query($id: ID!) { user(id: $id) { name } }}
+            }
+        }
+    }
+
+    Flux::Case "empty class list sends a computed value untouched" {
+        let payload [Json::encode #{op {$ref} n 1}]
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body () $payload
+            on_response {
+                assert_status 200
+                assert_json "/request/body/op" {$ref}
+            }
+        }
+    }
+
+    Flux::Case "class list before the block opts in to commands" {
+        let n 2
+        POST "$base/" {
+            header "Content-Type: application/json"
+            body (variables commands) {{"sum":[+ 1 $n]}}
+            on_response {
+                assert_status 200
+                assert_json "/request/body/sum" 3
+            }
+        }
+    }
+
     Flux::Case "POST with no body still succeeds" {
         POST "$base/" {
             on_response {

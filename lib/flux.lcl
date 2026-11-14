@@ -808,6 +808,28 @@ namespace Flux {
     proc configure {option value} {
         set! _config [put $_config $option $value]
     }
+
+    ;; Sort out the arguments of `headers` / `body`: one argument is the
+    ;; block, two are a substitution-class list followed by the block.
+    proc _block_args {verb a b} {
+        if [== $b "<flux:no-classes>"] {
+            return #{classes (variables) block $a}
+        }
+
+        if [catch { subst {} $a } _r err] {
+            error [String::join ($verb ": first of two arguments must be a list of substitution classes -- " $err) ""]
+        }
+
+        return #{classes $a block $b}
+    }
+
+    ;; A header line break inside an interpolated value would smuggle a
+    ;; second header into the request.
+    proc _check_header_line {line} {
+        if [or [has? $line "\n"] [has? $line "\r"]] {
+            error [String::join ("headers: line break in header value: " $line) ""]
+        }
+    }
 }
 
 
@@ -856,27 +878,50 @@ proc HEAD {url (syntax_body {})} {
 ;; without per-call closure allocations.
 ;; ===========================================================================
 
+;; `headers` and `body` blocks are templates: `$name` and `${name}` are
+;; replaced with the variable's value, and nothing else is touched, so JSON
+;; arrays and backslash escapes pass through. `\$` is a literal dollar. A
+;; substituted value is inserted as text and never rescanned.
+;;
+;; An optional list before the block chooses what `subst` performs instead
+;; (`variables`, `commands`, `backslashes`):
+;;
+;;     body { {"name": "$name"} }                      ;; default: (variables)
+;;     headers (variables commands) { X-Id: [uuid] }
+;;     body () { query($id: ID!) { ... } }             ;; literal, no substitution
+;;     body () $payload                                ;; computed value, as-is
+;;
+;; The default applies to every one-argument call, so a computed value that
+;; may contain `$name` must be passed with `()`.
+
 macro header {h} {
     quasiquote {
         set! config [put $config headers [List::push [get $config headers] {,$h}]]
     }
 }
 
-macro headers {hds} {
+macro headers {a (b "<flux:no-classes>")} {
+    let args [Flux::_block_args headers $a $b]
+    let block [get $args block]
+    let classes [get $args classes]
     let line [gensym _hdr_line]
     let trimmed [gensym _hdr_trimmed]
     quasiquote {
-        foreach ,$line [String::split {,$hds} "\n"] {
-            let ,$trimmed [subst [String::trim $,$line]]
+        foreach ,$line [String::split {,$block} "\n"] {
+            let ,$trimmed [subst [String::trim $,$line] (,@$classes)]
             if [not [empty? $,$trimmed]] {
+                Flux::_check_header_line $,$trimmed
                 set! config [put $config headers [List::push [get $config headers] $,$trimmed]]
             }
         }
     }
 }
 
-macro body {b} {
-    quasiquote { set! config [put $config body {,$b}] }
+macro body {a (b "<flux:no-classes>")} {
+    let args [Flux::_block_args body $a $b]
+    let block [get $args block]
+    let classes [get $args classes]
+    quasiquote { set! config [put $config body [subst {,$block} (,@$classes)]] }
 }
 
 macro timeout_ms {ms} {

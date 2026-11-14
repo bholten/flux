@@ -30,6 +30,112 @@ Flux::Suite "Request headers" {
     }
 }
 
+Flux::Suite "Header block interpolation" {
+    Flux::Case "variables are substituted, local ones included" {
+        let token "abc123"
+        GET "$base/" {
+            headers {
+                Authorization: Bearer $token
+                X-Braced: ${token}-suffix
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/authorization" "Bearer abc123"
+                assert_json "/request/headers/x-braced" "abc123-suffix"
+            }
+        }
+    }
+
+    Flux::Case "brackets and escaped dollars stay literal" {
+        GET "$base/" {
+            headers {
+                X-List: [1,2,3]
+                X-Price: \$cost is $5
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/x-list" {[1,2,3]}
+                assert_json "/request/headers/x-price" {$cost is $5}
+            }
+        }
+    }
+
+    Flux::Case "substituted values are not rescanned" {
+        let tricky {[error boom] $nope}
+        GET "$base/" {
+            headers {
+                X-Tricky: $tricky
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/x-tricky" {[error boom] $nope}
+            }
+        }
+    }
+
+    Flux::Case "class list before the block opts in to commands" {
+        let n 2
+        GET "$base/" {
+            headers (variables commands) {
+                X-Sum: [+ 1 $n]
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/x-sum" "3"
+            }
+        }
+    }
+
+    Flux::Case "empty class list sends the block untouched" {
+        GET "$base/" {
+            headers () {
+                X-Raw: $not_a_var
+            }
+            on_response {
+                assert_status 200
+                assert_json "/request/headers/x-raw" {$not_a_var}
+            }
+        }
+    }
+
+    Flux::Case "undefined variable is reported by name" {
+        let rc [catch {
+            GET "$base/" {
+                headers {
+                    X-Val: $no_such_variable
+                }
+            }
+        } _r err]
+        assert [== $rc 1]
+        assert_contains $err "undefined variable \"no_such_variable\""
+    }
+
+    Flux::Case "a line break in a substituted value is rejected" {
+        let smuggle "a\nX-Evil: 1"
+        let rc [catch {
+            GET "$base/" {
+                headers {
+                    X-Val: $smuggle
+                }
+            }
+        } _r err]
+        assert [== $rc 1]
+        assert_contains $err "line break in header value"
+    }
+
+    Flux::Case "bad class list is rejected" {
+        let rc [catch {
+            GET "$base/" {
+                headers (variables nope) {
+                    X-Val: 1
+                }
+            }
+        } _r err]
+        assert [== $rc 1]
+        assert_contains $err "unknown substitution class"
+    }
+}
+
 Flux::Suite "Response headers" {
     Flux::Case "Content-Type captured" {
         GET "$base/" {

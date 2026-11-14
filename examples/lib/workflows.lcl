@@ -22,7 +22,7 @@ namespace auth {
             ;; Simulate login (using httpbin to echo back our request)
             POST https://httpbin.org/post {
                 header "Content-Type: application/json"
-                body [subst {{"email": "$email", "password": "$password", "grant_type": "password"}}]
+                body {{"email": "$email", "password": "$password", "grant_type": "password"}}
 
                 on_response {
                     if [== $status_code 200] {
@@ -78,7 +78,7 @@ namespace posts {
 
         POST https://jsonplaceholder.typicode.com/posts {
             header "Content-Type: application/json"
-            body [subst {{"title": "$title", "body": "$body_text", "userId": $user_id}}]
+            body {{"title": "$title", "body": "$body_text", "userId": $user_id}}
 
             on_response {
                 if [== $status_code 201] {
